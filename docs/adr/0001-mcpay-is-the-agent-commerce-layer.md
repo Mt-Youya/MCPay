@@ -1,0 +1,3 @@
+# MCPay is the agent commerce layer
+
+MCPay is defined as the commerce-orchestration layer above capability protocols and payment primitives, rather than as a wallet, an MCP directory, or an x402 wrapper. MCP describes what a service can do, a payment handshake such as x402 describes how access is paid for, and Monad provides settlement; MCPay owns discovery, provider comparison, budget-aware purchasing, execution orchestration, and the resulting agent-commerce experience. This boundary keeps the product focused on the question “what should the agent buy, from whom, and should it spend the money?” rather than reimplementing lower-level protocols.

@@ -1,0 +1,3 @@
+# Keep marketplace metadata off-chain and economic state verifiable on-chain
+
+MCPay will not put the full Provider catalog and service metadata on-chain. Provider-facing descriptive metadata such as names, descriptions, endpoints, tags, latency, and presentation data stays off-chain, while ownership and payment settlement are designed to remain independently verifiable through blockchain transactions and minimal registry state where needed. This avoids paying blockchain storage costs for mutable application metadata while preserving the economic properties that justify using a shared settlement layer.
