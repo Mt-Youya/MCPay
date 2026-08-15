@@ -7,6 +7,16 @@ Available build time at decision freeze: **7 hours**
 
 This file consolidates the decisions made across the grilling session.
 
+## 2026-08-15 实现状态说明
+
+本文件是“决策冻结时”的历史记录，不应作为当前功能清单。后续实现已经完成了 Cloudflare Worker monorepo、NDJSON 流式任务事件、Monad Testnet 支付验证、D1 防重放，以及 Tavily + DeepSeek 的证据化研究 Provider。
+
+制作 PPT 或判断当前范围时，请优先使用：
+
+- [`docs/PROJECT-OVERVIEW.md`](docs/PROJECT-OVERVIEW.md)
+- [`docs/SYSTEM-ARCHITECTURE.md`](docs/SYSTEM-ARCHITECTURE.md)
+- [`MVP-SCOPE.md`](MVP-SCOPE.md)
+
 ---
 
 ## Round 1 — Root constraints

@@ -9,9 +9,9 @@ MCPay is organized as a monorepo. This map directs agents to the context that ow
 
 ## Workspace contexts
 
-- `apps/web/CONTEXT.md` owns the browser experience for Users who create and observe Tasks.
-- `apps/api/CONTEXT.md` owns Task orchestration, Provider communication, Payment Requests, Payments, and Executions.
-- `apps/provider/CONTEXT.md` owns paid research execution, Payment Proof verification, and Payment Consumption.
-- `packages/commerce/CONTEXT.md` owns shared Budget, Offer-selection, and protocol contracts used by both applications.
+- [`apps/web/CONTEXT.md`](apps/web/CONTEXT.md) owns the browser experience for Users who create and observe Tasks.
+- [`apps/api/CONTEXT.md`](apps/api/CONTEXT.md) owns Task orchestration, Provider communication, Payment Requests, Payments, and Executions.
+- [`apps/provider/CONTEXT.md`](apps/provider/CONTEXT.md) owns paid research execution, Payment Proof verification, and Payment Consumption.
+- [`packages/commerce/CONTEXT.md`](packages/commerce/CONTEXT.md) owns shared Budget, Offer-selection, and protocol contracts used by both applications.
 
-If a workspace context has not been created yet, consult the system context and relevant system ADRs before adding it.
+For project narration and PPT facts, use [`docs/PROJECT-OVERVIEW.md`](docs/PROJECT-OVERVIEW.md) rather than inferring behavior from an individual context.

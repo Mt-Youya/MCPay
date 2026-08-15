@@ -1,239 +1,63 @@
-# MCPay — 7-Hour MVP Scope
+# MCPay MVP 范围与完成状态
 
-## Success condition
+## 成功条件
 
-The build is successful if a judge can trigger one complete, real commerce loop from the browser:
+观众可以从浏览器提交一个目标与 MON 预算，并观察到完整的、可解释的路径：
 
 ```text
 Goal + Budget
- ↓
-Agent understands required capability
- ↓
-Providers discovered
- ↓
-Provider selected
- ↓
-402 Payment Required
- ↓
-Real Monad payment
- ↓
-Provider verifies payment
- ↓
-Real Tool executes
- ↓
-Result returns
+ → planning
+ → Offer discovery and deterministic selection
+ → 402 Payment Required
+ → Monad Testnet payment
+ → Provider verification and one-time consumption
+ → evidence-backed streamed research
+ → result, citations, and economics
 ```
 
-## P0 — Must ship
+## 已完成
 
-1. One real LLM planning step.
-2. One real paid Service.
-3. At least two competing Offers for the showcased Service.
-4. Deterministic provider ranking.
-5. Real 402-style Payment Request.
-6. Real Monad transaction with a real tx hash.
-7. Payment verification before Service execution.
-8. Browser-visible execution state.
-9. Final economics summary.
+- [x] React 任务入口与 Turnstile 验证接入
+- [x] `POST /api/tasks` 的非流式路径
+- [x] `POST /api/tasks/stream` 的 NDJSON 流式路径
+- [x] `planning`、`offers`、`payment`、`execution` 四阶段事件
+- [x] 受限于 `web-research` 的 LLM 规划
+- [x] 共享且可测试的 MON 预算比较
+- [x] 基于声誉、质量、价格、延迟的确定性 Offer 排序
+- [x] Provider `/offers`、`/execute`、`/health`
+- [x] 402 请求—支付—带证明重试协议
+- [x] Monad Testnet 原生 MON 转账与成功回执检查
+- [x] Provider 校验交易成功、收款地址、精确金额
+- [x] D1 一次性消费支付证明，防止重放
+- [x] Tavily 实时证据检索与 DeepSeek 基于证据的综合
+- [x] Provider 到浏览器的正文流式转发与引用返回
+- [x] Cloudflare 速率限制：任务 10/IP/分钟，执行 30/IP/分钟
 
-## P1 — Ship only after P0 works
+## 演示前必须实际验证
 
-- Second real Service
-- Third fallback/mock Service
-- SSE event stream
-- Explorer links
-- richer Provider comparison
-- minimal Marketplace page
+这些能力有代码与配置入口，但每次正式展示前都需在目标环境重新验证：
 
-## P2
+- [ ] Agent Wallet 当前余额足以支付
+- [ ] Monad RPC 可用且交易能在可接受时间内确认
+- [ ] 主 Worker 的 DeepSeek Key、Agent 私钥、Turnstile Secret 正确
+- [ ] Provider 的收款地址、Tavily Key、DeepSeek Key 正确
+- [ ] D1 migration 已部署，`payment_consumptions` 可写
+- [ ] 主 Worker 指向当前 Provider 的 `/offers` 和 `/execute`
+- [ ] 自定义域名与 Turnstile hostname 一致
 
-- protocol fee
-- third real Service
-- extra animation polish
+## 明确不在 MVP 内
 
-## Explicit non-goals
+- 用户账户、钱包连接与充值 UI
+- 智能账户或链上预算强制执行
+- 多个真实 Provider 与开放式 Provider 注册
+- 链上声誉、服务质量担保、托管、退款与争议
+- 多链、主网与法币报价/汇率
+- Provider 管理后台、订阅、协议费与结算分账
+- 任意 Agent 工具执行或多 Agent 协作
 
-- authentication
-- complete wallet onboarding
-- production custody model
-- on-chain reputation
-- escrow/disputes
-- smart-account delegation
-- ERC-8004 integration
-- provider administration UI
-- DAO/token/NFT
-- unrestricted agent tool execution
-- multi-agent orchestration
+## 变更优先级
 
-## Suggested API
-
-### Create task
-
-```http
-POST /api/tasks
-Content-Type: application/json
-```
-
-```json
-{
-  "goal": "Research the Monad ecosystem and identify five promising projects.",
-  "budget": "0.10"
-}
-```
-
-### Agent events
-
-```ts
-type AgentEvent =
-  | {
-      type: "planning"
-      message: string
-    }
-  | {
-      type: "providers_found"
-      service: string
-      providers: Provider[]
-    }
-  | {
-      type: "provider_selected"
-      provider: Provider
-      reason: string
-    }
-  | {
-      type: "payment_required"
-      amount: string
-      recipient: string
-    }
-  | {
-      type: "payment_pending"
-      txHash: string
-    }
-  | {
-      type: "payment_confirmed"
-      txHash: string
-    }
-  | {
-      type: "tool_completed"
-      tool: string
-      latency: number
-    }
-  | {
-      type: "completed"
-      result: string
-      spent: string
-    }
-```
-
-## Suggested Provider shape
-
-```ts
-type Provider = {
-  id: string
-  name: string
-  service: string
-  endpoint: string
-  recipient: `0x${string}`
-  price: string
-  reputation: number
-  quality: number
-  latencyMs: number
-}
-```
-
-## Provider ranking
-
-Keep the economic decision deterministic:
-
-```ts
-score = reputation * 0.5 + quality * 0.3 + priceScore * 0.15 + latencyScore * 0.05
-```
-
-Use the LLM to explain the selected Provider, not to make an unpredictable financial ranking.
-
-## 402-compatible fallback protocol
-
-First request:
-
-```http
-GET /api/providers/search?q=Monad
-```
-
-Response:
-
-```http
-HTTP/1.1 402 Payment Required
-Content-Type: application/json
-```
-
-```json
-{
-  "service": "web_search",
-  "price": "0.001",
-  "network": "monad",
-  "recipient": "0x..."
-}
-```
-
-After payment:
-
-```http
-GET /api/providers/search?q=Monad
-X-Payment-Tx: 0x...
-```
-
-Provider validates:
-
-- transaction exists
-- recipient matches
-- amount is sufficient
-- payment has not already been consumed, if replay protection is implemented
-
-Then:
-
-```http
-HTTP/1.1 200 OK
-```
-
-## Frontend states
-
-Do not overbuild.
-
-```text
-Idle
-Running
-Success
-Error
-```
-
-Execution graph:
-
-```text
-Planner
- ↓
-Discover
- ↓
-Select
- ↓
-Pay
- ↓
-Execute
-```
-
-## Survival-mode cut list
-
-If the golden path is not browser-complete by hour five, remove in order:
-
-1. Social service
-2. Crypto service
-3. Marketplace page
-4. Protocol fee
-5. Registry contract
-6. Reputation history logic
-
-Never remove:
-
-- Agent intent step
-- one real Service
-- 402
-- real Monad payment
-- result
+1. 保证一次真实的 `web-research` 交易能安全完成。
+2. 使 UI 清楚展示预算、选择、402、付款、验证、结果和来源。
+3. 增加第二个真实 Provider。
+4. 引入智能账户预算策略与更完整的商业保障机制。
