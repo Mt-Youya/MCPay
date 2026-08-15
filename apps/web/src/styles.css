@@ -1,75 +1,58 @@
-:root {
-  color: #f6f5ef;
-  background: #10130f;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-}
+@import "tailwindcss";
 
-* {
-  box-sizing: border-box;
+:root {
+  color: #eef0f7;
+  background: #0a0c12;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
 }
 
 body {
-  margin: 0;
+  background:
+    radial-gradient(circle at 12% -10%, rgba(109, 120, 255, 0.18), transparent 28rem),
+    radial-gradient(circle at 92% 8%, rgba(194, 119, 83, 0.12), transparent 22rem), #0a0c12;
 }
 
-main {
-  display: grid;
-  gap: 2rem;
-  max-width: 46rem;
-  margin: 0 auto;
-  padding: 4rem 1.5rem;
-}
-
-section {
-  display: grid;
-  gap: 1rem;
-  padding: 1.5rem;
-  border: 1px solid #3d4938;
-  border-radius: 1rem;
-  background: #182016;
-}
-
-h1,
-h2,
-p {
-  margin: 0;
-}
-
-h1 {
-  font-size: clamp(2rem, 8vw, 4.5rem);
-  line-height: 0.95;
-}
-
-label {
-  display: grid;
-  gap: 0.5rem;
-  font-weight: 700;
-}
-
-textarea,
+button,
 input,
-button {
-  border: 1px solid #708167;
-  border-radius: 0.6rem;
-  padding: 0.75rem;
+textarea {
   font: inherit;
 }
 
-textarea,
-input {
-  color: inherit;
-  background: #11170f;
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid #aab5ff;
+  outline-offset: 3px;
 }
 
-textarea {
-  min-height: 7rem;
-  resize: vertical;
+@keyframes trace-pulse {
+  50% {
+    box-shadow: 0 0 0 0.55rem rgba(239, 200, 141, 0.035);
+  }
 }
 
-button {
-  color: #10130f;
-  background: #d7f677;
-  border: 0;
-  font-weight: 800;
-  cursor: pointer;
+@keyframes cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

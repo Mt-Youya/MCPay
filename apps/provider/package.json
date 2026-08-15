@@ -10,6 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "cf:d1:create": "wrangler d1 create mcpay-provider",
     "cf:deploy": "wrangler deploy",
+    "cf:check": "pnpm --dir ../.. check:provider",
     "cf:login": "wrangler login",
     "cf:migrate:local": "wrangler d1 migrations apply mcpay-provider --local",
     "cf:migrate": "wrangler d1 migrations apply mcpay-provider --remote",

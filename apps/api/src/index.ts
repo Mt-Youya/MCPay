@@ -83,7 +83,7 @@ export const createDemoTaskRunner = (): TaskRunner => ({
     await onProgress?.({ stage: "offers", message: `${selectedOffer.providerName} selected` })
 
     if (canPurchase) {
-      await onProgress?.({ stage: "payment", message: "Payment confirmed" })
+      await onProgress?.({ stage: "payment", message: "Monad payment confirmed" })
       await onProgress?.({ stage: "execution", message: "Provider execution complete" })
     }
 

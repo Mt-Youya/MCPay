@@ -86,58 +86,58 @@ Content-Type: application/json
 ```ts
 type AgentEvent =
   | {
-      type: "planning";
-      message: string;
+      type: "planning"
+      message: string
     }
   | {
-      type: "providers_found";
-      service: string;
-      providers: Provider[];
+      type: "providers_found"
+      service: string
+      providers: Provider[]
     }
   | {
-      type: "provider_selected";
-      provider: Provider;
-      reason: string;
+      type: "provider_selected"
+      provider: Provider
+      reason: string
     }
   | {
-      type: "payment_required";
-      amount: string;
-      recipient: string;
+      type: "payment_required"
+      amount: string
+      recipient: string
     }
   | {
-      type: "payment_pending";
-      txHash: string;
+      type: "payment_pending"
+      txHash: string
     }
   | {
-      type: "payment_confirmed";
-      txHash: string;
+      type: "payment_confirmed"
+      txHash: string
     }
   | {
-      type: "tool_completed";
-      tool: string;
-      latency: number;
+      type: "tool_completed"
+      tool: string
+      latency: number
     }
   | {
-      type: "completed";
-      result: string;
-      spent: string;
-    };
+      type: "completed"
+      result: string
+      spent: string
+    }
 ```
 
 ## Suggested Provider shape
 
 ```ts
 type Provider = {
-  id: string;
-  name: string;
-  service: string;
-  endpoint: string;
-  recipient: `0x${string}`;
-  price: string;
-  reputation: number;
-  quality: number;
-  latencyMs: number;
-};
+  id: string
+  name: string
+  service: string
+  endpoint: string
+  recipient: `0x${string}`
+  price: string
+  reputation: number
+  quality: number
+  latencyMs: number
+}
 ```
 
 ## Provider ranking
@@ -145,11 +145,7 @@ type Provider = {
 Keep the economic decision deterministic:
 
 ```ts
-score =
-  reputation * 0.50 +
-  quality * 0.30 +
-  priceScore * 0.15 +
-  latencyScore * 0.05;
+score = reputation * 0.5 + quality * 0.3 + priceScore * 0.15 + latencyScore * 0.05
 ```
 
 Use the LLM to explain the selected Provider, not to make an unpredictable financial ranking.
@@ -186,6 +182,7 @@ X-Payment-Tx: 0x...
 ```
 
 Provider validates:
+
 - transaction exists
 - recipient matches
 - amount is sufficient
@@ -234,6 +231,7 @@ If the golden path is not browser-complete by hour five, remove in order:
 6. Reputation history logic
 
 Never remove:
+
 - Agent intent step
 - one real Service
 - 402

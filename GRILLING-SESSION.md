@@ -12,36 +12,43 @@ This file consolidates the decisions made across the grilling session.
 ## Round 1 — Root constraints
 
 ### Q1 — Primary objective
+
 **Decision: A — Win.**
 
 Optimize for judge comprehension, Monad relevance, a visible wow moment, and a reliable live demo.
 
 ### Q2 — Idea
+
 **Decision: MCPay.**
 
 MCPay is the chosen idea.
 
 ### Q3 — Team
+
 **Decision: C — 3–4 people.**
 
 The team includes backend and AI Agent development capability, allowing frontend, backend/payment, agent orchestration, and Web3 work to proceed in parallel.
 
 ### Q4 — Current progress
+
 **Decision: A — No implementation started.**
 
 The project begins from zero.
 
 ### Q5 — Remaining time
+
 **Decision: 7 hours.**
 
 Scope must be treated as a one-session prototype.
 
 ### Q6 — Solidity tolerance
+
 **Decision: B — A small contract is acceptable.**
 
 Smart contracts support the product; they are not the main source of complexity.
 
 ### Q7 — Core story
+
 **Decision: C.**
 
 > AI Agents can complete commercial transactions without human participation.
@@ -51,6 +58,7 @@ Smart contracts support the product; they are not the main source of complexity.
 ## Round 2 — Product identity
 
 ### Q8 — Real users
+
 **Decision: D — Three-sided marketplace, with the demo from the User perspective.**
 
 Actors:
@@ -66,6 +74,7 @@ Provider
 ```
 
 ### Q9 — Problem MCPay solves
+
 **Decision: E — The complete commerce chain.**
 
 ```text
@@ -85,6 +94,7 @@ Canonical positioning:
 > We built the commerce layer for AI agents.
 
 ### Q10 — Demo task
+
 **Decision: C — Generate a Monad ecosystem research result.**
 
 Example:
@@ -92,24 +102,29 @@ Example:
 > Research the Monad ecosystem and identify five promising emerging projects.
 
 ### Q11 — Real vs mock Providers
+
 **Decision: C — Real core tools with a mock/fallback tool allowed.**
 
 Preferred:
+
 - Web Search — real
 - Crypto Data — real
 - Social Sentiment — mock/fallback allowed
 
 ### Q12 — Whose money the Agent spends
+
 **Decision: C — User pre-funds an Agent balance / budget.**
 
 The demo should make the Agent economically legible as an independent actor while avoiding complicated account-abstraction work.
 
 ### Q13 — Provider selection
+
 **Decision: C — Evaluate price, reputation, latency, and quality.**
 
 The Agent should make an economic choice rather than merely invoke a predetermined tool.
 
 ### Q14 — Contract role
+
 **Decision: D — Minimal Registry + Payment, with aggressive fallback.**
 
 Do not build complex reputation or escrow contracts.
@@ -119,37 +134,45 @@ Do not build complex reputation or escrow contracts.
 ## Round 3 — Domain model
 
 ### Q15 — Agent identity
+
 **Decision: C — Each User conceptually owns an Agent Wallet.**
 
 ### Q16 — Budget enforcement
+
 **Decision: B — Enforce Task Budget in backend/orchestration for the MVP.**
 
 Future smart-account enforcement is explicitly out of scope.
 
 ### Q17 — Provider source of truth
+
 **Decision: C — Hybrid model.**
 
 Minimal economic/ownership state may be on-chain; mutable descriptive metadata remains off-chain.
 
 ### Q18 — Tool discovery
+
 **Decision: C — Marketplace list + LLM capability selection.**
 
 The LLM decides which supported capabilities are needed from the goal. The implementation exposes a bounded service set.
 
 ### Q19 — Purchase approval
+
 **Decision: C — No per-purchase approval.**
 
 The Budget is the User's authorization boundary.
 
 ### Q20 — Payment timing
+
 **Decision: D — 402 → payment → retry.**
 
 ### Q21 — Business model
+
 **Decision: B — 1% protocol fee as the target model.**
 
 This is a P2 feature for the hackathon and may be omitted if it threatens the golden path.
 
 ### Q22 — Reputation
+
 **Decision: C — Derived from execution success data.**
 
 For the prototype, reputation may be seeded/simplified and is a selection signal, not a security guarantee.
@@ -199,16 +222,19 @@ SearchUltra  → $0.0020 → 99 reputation
 ## Round 4 — Demo design
 
 ### Q23 — Homepage
+
 **Decision: C — Goal input is the hero.**
 
 The first screen should let a judge immediately run the product.
 
 ### Q24 — Wallet requirement
+
 **Decision: B — Pre-funded demo Agent.**
 
 Do not put wallet connection, network switching, approvals, and deposits in the critical demo path.
 
 ### Q25 — Main visualization
+
 **Decision: C — Agent Execution Graph.**
 
 Core states:
@@ -226,9 +252,11 @@ Execute
 ```
 
 ### Q26 — Show HTTP 402
+
 **Decision: C — Make it a visible product event.**
 
 The judge should see:
+
 1. Service request
 2. `402 Payment Required`
 3. Agent decision
@@ -237,12 +265,15 @@ The judge should see:
 6. `200 OK`
 
 ### Q27 — Number of services
+
 **Decision: C — Show three; require only one or two to be production-reliable.**
 
 ### Q28 — Multiple Providers
+
 **Decision: C — Show provider competition for Web Search only.**
 
 ### Q29 — Selection algorithm
+
 **Decision: C — Deterministic score + LLM explanation.**
 
 Suggested shape:
@@ -258,6 +289,7 @@ score =
 The algorithm chooses; the LLM explains the choice.
 
 ### Q30 — Final result emphasis
+
 **Decision: D + B — Execution history plus economics.**
 
 The generated research content only needs to be credible. The hero metrics are the autonomous transactions.
@@ -275,12 +307,15 @@ Human approvals        0
 ```
 
 ### Q31 — Marketplace page
+
 **Decision: C — Minimal proof-of-concept page only.**
 
 ### Q32 — Provider registration UI
+
 **Decision: C — Contract/API capability may exist; UI is omitted.**
 
 ### Q33 — Agent funding page
+
 **Decision: C — Show balance only; omit funding UX from the demo.**
 
 ---
@@ -288,6 +323,7 @@ Human approvals        0
 ## Round 5 — Seven-hour build contract
 
 ### Q34 — Definition of success
+
 **Decision: D — One real end-to-end blockchain commerce loop.**
 
 ```text
@@ -313,6 +349,7 @@ Final Answer
 ### Q35 — What must be real
 
 Must be real:
+
 - LLM Agent invocation
 - At least one real Tool execution
 - Real Monad transaction
@@ -321,6 +358,7 @@ Must be real:
 - Real `402 → pay → retry` flow
 
 May be mocked/seeded:
+
 - reputation
 - marketplace execution counts
 - social sentiment provider
@@ -328,22 +366,27 @@ May be mocked/seeded:
 - dashboard historical data
 
 Must not be faked:
+
 - Monad transaction
 - payment action
 - the core paid-tool execution loop
 
 ### Q36 — Contract complexity
+
 **Decision: C, with fallback to A.**
 
 Target:
+
 - minimal Registry
 - Payment
 - optional protocol fee
 
 Fallback:
+
 - payment-only contract / direct payment if integration speed demands it
 
 ### Q37 — x402 implementation
+
 **Decision: A, fallback B.**
 
 Use the official/compatible approach if it integrates quickly. Otherwise preserve the essential semantics with a minimal 402-compatible flow.
@@ -393,6 +436,7 @@ Agent
 ```
 
 ### Q39 — Frontend/backend contract
+
 **Decision: SSE AgentEvent stream.**
 
 Suggested events:
@@ -406,7 +450,7 @@ type AgentEvent =
   | { type: "payment_pending"; txHash: string }
   | { type: "payment_confirmed"; txHash: string }
   | { type: "tool_completed"; tool: string; latency: number }
-  | { type: "completed"; result: string; spent: string };
+  | { type: "completed"; result: string; spent: string }
 ```
 
 Suggested entrypoint:
@@ -417,24 +461,29 @@ POST /api/tasks
 ```
 
 ### Q40 — Planner freedom
+
 **Decision: C — LLM plans over a controlled capability set.**
 
 The product looks open-ended to the User while the prototype remains reliable.
 
 ### Q41 — Provider decision
+
 **Decision: deterministic score + LLM explanation.**
 
 Semantic decisions belong to the LLM; financial/provider ranking should remain deterministic.
 
 ### Q42 — Research quality
+
 **Decision: C — Credible is enough.**
 
 Do not spend the hackathon optimizing the research Agent rather than the commerce protocol.
 
 ### Q43 — Marketplace timing
+
 **Decision: Only after the golden path works.**
 
 ### Q44 — Animation scope
+
 **Decision: Core state animation only.**
 
 Do not build Three.js/WebGL/complex decorative systems during the seven-hour prototype.
@@ -444,7 +493,9 @@ Do not build Three.js/WebGL/complex decorative systems during the seven-hour pro
 ## Build checkpoints
 
 ### Hour 0–1
+
 Freeze schemas:
+
 - Provider
 - AgentEvent
 - Task API
@@ -454,11 +505,13 @@ Freeze schemas:
 Parallel implementation begins.
 
 ### Hour 1–2
+
 Real Monad payment must work and be explorer-verifiable.
 
 Frontend may use fake events while the backend catches up.
 
 ### Hour 2–3
+
 Complete the paid request loop:
 
 ```text
@@ -476,18 +529,23 @@ Retry
 ```
 
 ### Hour 3 checkpoint
+
 The full loop should work from a terminal.
 
 If not, cut features immediately.
 
 ### Hour 3–4
+
 Connect the LLM planner and provider selection to one real Service.
 
 ### Hour 4–5
+
 Integrate frontend through SSE.
 
 ### Hour 5 checkpoint
+
 Browser action must trigger:
+
 - Agent run
 - real Monad payment
 - real paid tool result
@@ -495,6 +553,7 @@ Browser action must trigger:
 If not, enter survival mode.
 
 Cut in this order:
+
 1. Social Tool
 2. Crypto Tool
 3. Marketplace page
@@ -503,6 +562,7 @@ Cut in this order:
 6. reputation logic
 
 Keep:
+
 - Agent
 - one Tool
 - 402
@@ -510,7 +570,9 @@ Keep:
 - result
 
 ### Hour 5–6
+
 Only after the golden path works:
+
 - provider comparison
 - second Tool
 - third Tool
@@ -518,9 +580,11 @@ Only after the golden path works:
 - minimal Marketplace
 
 ### Hour 6–7
+
 No new features.
 
 Only:
+
 - bug fixes
 - seeded demo data
 - fallback API/model
@@ -534,6 +598,7 @@ Only:
 ## Priority stack
 
 ### P0
+
 - Real Monad Payment
 - HTTP 402
 - One real Tool
@@ -541,6 +606,7 @@ Only:
 - End-to-end demo
 
 ### P1
+
 - Multiple Providers
 - Provider scoring
 - SSE UI
@@ -548,12 +614,14 @@ Only:
 - second Tool
 
 ### P2
+
 - third Tool
 - Marketplace page
 - protocol fee
 - polish animations
 
 ### P3 — Explicitly out of scope today
+
 - Provider registration UX
 - user wallet funding UX
 - complex reputation
@@ -644,6 +712,7 @@ Algorithm
 ### Q56 — Is the Agent truly autonomous?
 
 After the User supplies a Goal and Budget, the Agent independently determines:
+
 - which capabilities are needed
 - which Provider to use
 - whether the price is acceptable
@@ -657,9 +726,11 @@ Target final metric:
 ### Q57 — Who is the customer?
 
 Initial demand side:
+
 - Agent developers
 
 Supply side:
+
 - MCP/API Providers
 
 ### Q58 — Why would Providers join?
@@ -669,6 +740,7 @@ MCPay lets a Provider expose a capability, set a price, and receive machine paym
 ### Q59 — Moat
 
 Long-term network value may compound through:
+
 - Provider graph
 - Agent graph
 - pricing history

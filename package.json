@@ -11,8 +11,12 @@
     "build": "pnpm --filter @mcpay/commerce --filter @mcpay/api --filter @mcpay/provider --filter @mcpay/web -r build",
     "dev": "pnpm --filter @mcpay/commerce build && pnpm --parallel --filter @mcpay/api --filter @mcpay/web dev",
     "dev:provider": "pnpm --filter @mcpay/provider dev",
+    "check:app": "oxfmt --check apps/api/src apps/web/src packages/commerce/src && oxlint apps/api/src apps/web/src packages/commerce/src",
+    "check:provider": "oxfmt --check apps/provider/src packages/commerce/src && oxlint apps/provider/src packages/commerce/src",
     "test": "pnpm --filter @mcpay/commerce --filter @mcpay/api --filter @mcpay/provider --filter @mcpay/web -r test",
-    "typecheck": "pnpm --filter @mcpay/commerce --filter @mcpay/api --filter @mcpay/provider --filter @mcpay/web -r typecheck"
+    "typecheck": "pnpm --filter @mcpay/commerce --filter @mcpay/api --filter @mcpay/provider --filter @mcpay/web -r typecheck",
+    "lint": "oxlint",
+    "fmt": "oxfmt --write ."
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
