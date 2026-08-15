@@ -82,12 +82,64 @@ type TaskView = {
   }
 }
 
+type TaskStreamEvent =
+  | { type: "progress"; progress: { message: string; content?: string } }
+  | { type: "result"; result: TaskView }
+  | { type: "error"; message: string }
+
+const readTaskStream = async (
+  response: Response,
+  onProgress: (progress: { message: string; content?: string }) => void
+) => {
+  if (!response.body) throw new Error("The Task stream could not be read.")
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let task: TaskView | null = null
+
+  const handleLine = (line: string) => {
+    if (!line) return
+    let event: TaskStreamEvent
+    try {
+      event = JSON.parse(line) as TaskStreamEvent
+    } catch {
+      throw new Error("The Task stream returned an invalid event.")
+    }
+    if (event.type === "progress") {
+      onProgress(event.progress)
+      return
+    }
+    if (event.type === "error") throw new Error(event.message)
+    if (event.type === "result") task = event.result
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += decoder.decode(value, { stream: !done })
+      const lines = buffer.split("\n")
+      buffer = lines.pop() ?? ""
+      for (const line of lines) handleLine(line)
+      if (done) break
+    }
+    if (buffer) handleLine(buffer)
+  } finally {
+    reader.releaseLock()
+  }
+
+  if (!task) throw new Error("The Task stream ended without a result.")
+  return task
+}
+
 export const App = () => {
   const [goal, setGoal] = useState("Research the Monad ecosystem and identify five promising projects.")
   const [budgetMon, setBudgetMon] = useState("0.01")
   const [task, setTask] = useState<TaskView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
+  const [progressMessage, setProgressMessage] = useState<string | null>(null)
+  const [streamedOutput, setStreamedOutput] = useState("")
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const turnstileElement = useRef<HTMLDivElement>(null)
   const turnstileWidgetId = useRef<string | null>(null)
@@ -122,25 +174,37 @@ export const App = () => {
     setIsRunning(true)
     setError(null)
     setTask(null)
+    setProgressMessage("Starting Task")
+    setStreamedOutput("")
 
     try {
-      const response = await fetch("/api/tasks", {
+      const response = await fetch("/api/tasks/stream", {
         method: "POST",
-        headers: { "content-type": "application/json", "x-turnstile-token": turnstileToken ?? "" },
+        headers: {
+          accept: "application/x-ndjson",
+          "content-type": "application/json",
+          "x-turnstile-token": turnstileToken ?? "",
+        },
         body: JSON.stringify({ goal, budgetMon }),
       })
-      const payload = (await response.json()) as TaskView & { message?: string }
 
       if (!response.ok) {
+        const payload = (await response.json()) as { message?: string }
         throw new Error(payload.message ?? "The Task could not be created.")
       }
 
-      setTask(payload)
+      setTask(
+        await readTaskStream(response, (progress) => {
+          setProgressMessage(progress.message)
+          if (progress.content) setStreamedOutput((output) => `${output}${progress.content}`)
+        })
+      )
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The Task could not be created.")
     } finally {
       if (turnstileWidgetId.current) window.turnstile?.reset(turnstileWidgetId.current)
       setTurnstileToken(null)
+      setProgressMessage(null)
       setIsRunning(false)
     }
   }
@@ -165,6 +229,13 @@ export const App = () => {
       </section>
 
       {error ? <p role="alert">{error}</p> : null}
+
+      {isRunning && progressMessage ? (
+        <section aria-live="polite" aria-label="Live Task output">
+          <p>{progressMessage}</p>
+          {streamedOutput ? <p>{streamedOutput}</p> : null}
+        </section>
+      ) : null}
 
       {task ? (
         <section aria-live="polite" aria-label="Task progress">

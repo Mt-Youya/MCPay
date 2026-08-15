@@ -1,4 +1,4 @@
-import { Hono } from "hono"
+import { Hono, type Context } from "hono"
 
 import { canAfford, rankOffers, type Offer } from "@mcpay/commerce"
 
@@ -57,8 +57,16 @@ export type TaskResult = {
     | { state: "budget-exceeded"; message: string }
 }
 
+export type TaskProgress = {
+  stage: "planning" | "offers" | "payment" | "execution"
+  message: string
+  content?: string
+}
+
+export type TaskProgressListener = (progress: TaskProgress) => void | Promise<void>
+
 export type TaskRunner = {
-  run: (task: { goal: string; budgetMon: string }) => Promise<TaskResult>
+  run: (task: { goal: string; budgetMon: string }, onProgress?: TaskProgressListener) => Promise<TaskResult>
 }
 
 export type ApiSecurity = {
@@ -67,10 +75,17 @@ export type ApiSecurity = {
 }
 
 export const createDemoTaskRunner = (): TaskRunner => ({
-  async run(task) {
+  async run(task, onProgress) {
+    await onProgress?.({ stage: "planning", message: "Planning Task" })
     const ranking = rankOffers(offers)
     const selectedOffer = ranking.selected.offer
     const canPurchase = canAfford(task.budgetMon, selectedOffer.priceMon)
+    await onProgress?.({ stage: "offers", message: `${selectedOffer.providerName} selected` })
+
+    if (canPurchase) {
+      await onProgress?.({ stage: "payment", message: "Payment confirmed" })
+      await onProgress?.({ stage: "execution", message: "Provider execution complete" })
+    }
 
     return {
       task: { id: "task-demo-001", ...task },
@@ -111,6 +126,66 @@ export const createDemoTaskRunner = (): TaskRunner => ({
   },
 })
 
+type ValidTask = { goal: string; budgetMon: string }
+
+const validateTask = async (context: Context, security: ApiSecurity): Promise<ValidTask | Response> => {
+  const rateLimit = await security.taskRateLimiter(requestClientIp(context.req.raw))
+  if (!rateLimit.allowed) {
+    context.header("Retry-After", String(rateLimit.retryAfterSeconds))
+    return context.json({ message: "Too many Task requests. Try again later." }, 429)
+  }
+
+  if (
+    !(await security.verifyTaskTurnstile?.(context.req.header("x-turnstile-token"), requestClientIp(context.req.raw)))
+  ) {
+    if (security.verifyTaskTurnstile) return context.json({ message: "Task verification failed." }, 403)
+  }
+
+  const body = (await context.req.json()) as CreateTask
+  if (typeof body.goal !== "string" || body.goal.trim().length === 0) {
+    return context.json({ message: "A Task goal is required." }, 400)
+  }
+  if (typeof body.budgetMon !== "string" || Number(body.budgetMon) <= 0) {
+    return context.json({ message: "A positive Budget is required." }, 400)
+  }
+  return { goal: body.goal.trim(), budgetMon: body.budgetMon }
+}
+
+const streamTask = (context: Context, runner: TaskRunner, task: ValidTask) => {
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const send = (
+        event:
+          | { type: "progress"; progress: TaskProgress }
+          | { type: "result"; result: TaskResult }
+          | { type: "error"; message: string }
+      ) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+      }
+
+      void (async () => {
+        try {
+          const result = await runner.run(task, async (progress) => send({ type: "progress", progress }))
+          send({ type: "result", result })
+        } catch (caught) {
+          send({
+            type: "error",
+            message: caught instanceof Error ? caught.message : "The Task could not be completed.",
+          })
+        } finally {
+          controller.close()
+        }
+      })()
+    },
+  })
+
+  return context.body(stream, 200, {
+    "cache-control": "no-cache",
+    "content-type": "application/x-ndjson; charset=utf-8",
+  })
+}
+
 export const createApp = (
   runner: TaskRunner = createDemoTaskRunner(),
   security: ApiSecurity = { taskRateLimiter: createFixedWindowRateLimiter(10, 60_000) }
@@ -118,36 +193,23 @@ export const createApp = (
   const app = new Hono()
 
   app.post("/api/tasks", async (context) => {
-    const rateLimit = await security.taskRateLimiter(requestClientIp(context.req.raw))
-    if (!rateLimit.allowed) {
-      context.header("Retry-After", String(rateLimit.retryAfterSeconds))
-      return context.json({ message: "Too many Task requests. Try again later." }, 429)
-    }
-
-    if (
-      !(await security.verifyTaskTurnstile?.(context.req.header("x-turnstile-token"), requestClientIp(context.req.raw)))
-    ) {
-      if (security.verifyTaskTurnstile) return context.json({ message: "Task verification failed." }, 403)
-    }
-
-    const body = (await context.req.json()) as CreateTask
-
-    if (typeof body.goal !== "string" || body.goal.trim().length === 0) {
-      return context.json({ message: "A Task goal is required." }, 400)
-    }
-
-    if (typeof body.budgetMon !== "string" || Number(body.budgetMon) <= 0) {
-      return context.json({ message: "A positive Budget is required." }, 400)
-    }
+    const task = await validateTask(context, security)
+    if (task instanceof Response) return task
 
     try {
-      return context.json(await runner.run({ goal: body.goal.trim(), budgetMon: body.budgetMon }))
+      return context.json(await runner.run(task))
     } catch (caught) {
       return context.json(
         { message: caught instanceof Error ? caught.message : "The Task could not be completed." },
         502
       )
     }
+  })
+
+  app.post("/api/tasks/stream", async (context) => {
+    const task = await validateTask(context, security)
+    if (task instanceof Response) return task
+    return streamTask(context, runner, task)
   })
 
   return app

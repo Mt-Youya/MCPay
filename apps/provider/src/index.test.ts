@@ -109,6 +109,36 @@ describe("MCPay Research Provider", () => {
     expect(research).toHaveBeenCalledOnce()
   })
 
+  it("streams research chunks and source citations after verified Payment", async () => {
+    const app = createProviderApp({
+      offer,
+      verifyPayment: vi.fn(async () => undefined),
+      consumePayment: vi.fn(async () => true),
+      research: vi.fn(async () => ({ result: "unused", citations: [] })),
+      researchStream: async (_goal, onChunk) => {
+        await onChunk("Monad ")
+        await onChunk("research")
+        return { result: "Monad research", citations: [{ title: "Monad docs", url: "https://docs.monad.xyz/" }] }
+      },
+    })
+    const response = await app.request(
+      request({
+        accept: "application/x-ndjson",
+        "x-payment-tx": proof.transactionId,
+        "x-payment-recipient": proof.recipient,
+        "x-payment-amount": proof.paymentAmountNative,
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toContain("application/x-ndjson")
+    await expect(response.arrayBuffer().then((body) => new TextDecoder().decode(body))).resolves.toBe(
+      '{"type":"chunk","content":"Monad "}\n' +
+        '{"type":"chunk","content":"research"}\n' +
+        '{"type":"result","result":"Monad research","citations":[{"title":"Monad docs","url":"https://docs.monad.xyz/"}]}\n'
+    )
+  })
+
   it("rejects a replayed Payment Proof before a second Execution", async () => {
     const store = createD1PaymentStore(env.DB)
     const research = vi.fn(async () => ({ result: "Research complete.", citations: [] }))

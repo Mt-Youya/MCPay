@@ -3,7 +3,7 @@ import { privateKeyToAccount } from "viem/accounts"
 
 import { canAfford, rankOffers, type Offer } from "@mcpay/commerce"
 
-import { createDemoTaskRunner, type TaskResult, type TaskRunner } from "./index.js"
+import { createDemoTaskRunner, type TaskProgressListener, type TaskResult, type TaskRunner } from "./index.js"
 
 type LiveConfig = {
   llmApiKey: string
@@ -34,6 +34,13 @@ type RemoteExecution = {
   result?: string
   citations?: Array<{ title?: unknown; url?: unknown }>
 }
+type RemoteStreamEvent = {
+  type?: unknown
+  content?: unknown
+  result?: unknown
+  citations?: Array<{ title?: unknown; url?: unknown }>
+  message?: unknown
+}
 type PaymentRequest = {
   protocolStatus: 402
   amountMon: string
@@ -43,7 +50,8 @@ type PaymentRequest = {
 }
 
 const required = (environment: RuntimeEnvironment, name: keyof LiveConfig) => {
-  const environmentName = `MCPAY_${name.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase()}` as keyof RuntimeEnvironment
+  const environmentName =
+    `MCPAY_${name.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase()}` as keyof RuntimeEnvironment
   const value = environment[environmentName]
   if (!value) throw new Error(`${name} is required when MCPAY_RUNTIME_MODE=live`)
   return value
@@ -160,6 +168,10 @@ const executeRemotely = async (
   })
   if (!response.ok) throw new Error(`Provider Execution failed with ${response.status}`)
   const execution = (await response.json()) as RemoteExecution
+  return validExecution(execution)
+}
+
+const validExecution = (execution: RemoteExecution) => {
   if (execution.paymentVerified !== true || typeof execution.result !== "string") {
     throw new Error("Provider did not verify Payment before Execution")
   }
@@ -172,13 +184,82 @@ const executeRemotely = async (
   return { result: execution.result, citations: execution.citations as Array<{ title: string; url: string }> }
 }
 
+const executeRemotelyStream = async (
+  config: LiveConfig,
+  task: { goal: string; budgetMon: string },
+  offer: Offer,
+  paymentRequest: PaymentRequest,
+  transactionId: string,
+  onProgress: TaskProgressListener
+) => {
+  const response = await fetch(config.providerExecutionUrl, {
+    method: "POST",
+    headers: {
+      accept: "application/x-ndjson",
+      "content-type": "application/json",
+      "x-payment-tx": transactionId,
+      "x-payment-recipient": paymentRequest.recipient,
+      "x-payment-amount": paymentRequest.paymentAmountNative,
+    },
+    body: JSON.stringify({ goal: task.goal, budgetMon: task.budgetMon, service: offer.service }),
+  })
+  if (!response.ok) throw new Error(`Provider Execution failed with ${response.status}`)
+  if (!response.body) throw new Error("Provider Execution did not return a stream")
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let execution: RemoteExecution | undefined
+
+  const handleLine = async (line: string) => {
+    if (!line) return
+    let event: RemoteStreamEvent
+    try {
+      event = JSON.parse(line) as RemoteStreamEvent
+    } catch {
+      throw new Error("Provider Execution returned an invalid stream")
+    }
+    if (event.type === "chunk" && typeof event.content === "string") {
+      await onProgress({ stage: "execution", message: "Research synthesis", content: event.content })
+      return
+    }
+    if (event.type === "error" && typeof event.message === "string") throw new Error(event.message)
+    if (event.type === "result") {
+      execution = {
+        paymentVerified: true,
+        result: typeof event.result === "string" ? event.result : undefined,
+        citations: event.citations,
+      }
+    }
+  }
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += decoder.decode(value, { stream: !done })
+      const lines = buffer.split("\n")
+      buffer = lines.pop() ?? ""
+      for (const line of lines) await handleLine(line)
+      if (done) break
+    }
+    if (buffer) await handleLine(buffer)
+  } finally {
+    reader.releaseLock()
+  }
+
+  if (!execution) throw new Error("Provider Execution stream ended without a result")
+  return validExecution(execution)
+}
+
 const createLiveTaskRunner = (config: LiveConfig): TaskRunner => ({
-  async run(task): Promise<TaskResult> {
+  async run(task, onProgress): Promise<TaskResult> {
+    await onProgress?.({ stage: "planning", message: "Planning Task and discovering Offers" })
     const [plan, offers] = await Promise.all([planTask(config, task.goal), fetchOffers(config.offersUrl)])
     const matchingOffers = offers.filter((offer) => offer.service === plan.service)
     if (matchingOffers.length === 0) throw new Error("No purchasable Offer supports this Service.")
     const ranking = rankOffers(matchingOffers)
     const selectedOffer = ranking.selected.offer
+    await onProgress?.({ stage: "offers", message: `${selectedOffer.providerName} selected` })
 
     const paymentRequest = await requestPayment(config, task, selectedOffer)
 
@@ -196,8 +277,13 @@ const createLiveTaskRunner = (config: LiveConfig): TaskRunner => ({
       }
     }
 
+    await onProgress?.({ stage: "payment", message: "Submitting Monad payment" })
     const transactionId = await settleOnMonad(config, paymentRequest)
-    const execution = await executeRemotely(config, task, selectedOffer, paymentRequest, transactionId)
+    await onProgress?.({ stage: "payment", message: "Monad payment confirmed" })
+    await onProgress?.({ stage: "execution", message: "Provider verified payment; researching" })
+    const execution = onProgress
+      ? await executeRemotelyStream(config, task, selectedOffer, paymentRequest, transactionId, onProgress)
+      : await executeRemotely(config, task, selectedOffer, paymentRequest, transactionId)
     return {
       task: { id: crypto.randomUUID(), ...task },
       plan,

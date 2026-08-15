@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from "vitest"
 import { createApp } from "./index.js"
 import { createFixedWindowRateLimiter } from "./rate-limit.js"
 
-const taskRequest = (ip: string) =>
-  new Request("http://api.test/api/tasks", {
+const taskRequest = (ip: string, path = "/api/tasks") =>
+  new Request(`http://api.test${path}`, {
     method: "POST",
     headers: { "cf-connecting-ip": ip, "content-type": "application/json" },
     body: JSON.stringify({ goal: "Research Monad", budgetMon: "0.01" }),
@@ -63,5 +63,21 @@ describe("Task API rate limiting", () => {
 
     expect(response.status).toBe(200)
     expect(run).toHaveBeenCalledOnce()
+  })
+
+  it("streams Task lifecycle events before the final result", async () => {
+    const app = createApp()
+
+    const response = await app.request(taskRequest("203.0.113.10", "/api/tasks/stream"))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toContain("application/x-ndjson")
+    const events = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { type: string; progress?: { stage: string }; result?: unknown })
+    expect(events[0]).toMatchObject({ type: "progress", progress: { stage: "planning" } })
+    expect(events.some((event) => event.progress?.stage === "payment")).toBe(true)
+    expect(events.at(-1)).toMatchObject({ type: "result" })
   })
 })

@@ -19,6 +19,7 @@ export type ProviderRuntime = {
   verifyPayment: (proof: PaymentProof) => Promise<void>
   consumePayment: (proof: PaymentProof) => Promise<boolean>
   research: (goal: string) => Promise<ResearchResult>
+  researchStream?: (goal: string, onChunk: (content: string) => void | Promise<void>) => Promise<ResearchResult>
 }
 
 export type ExecutionRateLimiter = {
@@ -77,6 +78,39 @@ const hasExpectedTerms = (proof: PaymentProof, offer: Offer) =>
 
 const requestClientIp = (request: Request) => request.headers.get("cf-connecting-ip") ?? "unknown"
 
+const wantsStream = (request: Request) => request.headers.get("accept")?.includes("application/x-ndjson") ?? false
+
+const streamResearch = (research: (onChunk: (content: string) => void) => Promise<ResearchResult>) => {
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const send = (
+        event:
+          | { type: "chunk"; content: string }
+          | { type: "result"; result: string; citations: ResearchResult["citations"] }
+          | { type: "error"; message: string }
+      ) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+      }
+
+      void (async () => {
+        try {
+          const result = await research((content) => send({ type: "chunk", content }))
+          send({ type: "result", ...result })
+        } catch (caught) {
+          send({ type: "error", message: caught instanceof Error ? caught.message : "Research Execution failed." })
+        } finally {
+          controller.close()
+        }
+      })()
+    },
+  })
+
+  return new Response(stream, {
+    headers: { "cache-control": "no-cache", "content-type": "application/x-ndjson; charset=utf-8" },
+  })
+}
+
 export const createProviderApp = (runtime: ProviderRuntime, executeRateLimiter?: ExecutionRateLimiter) => {
   const app = new Hono()
 
@@ -96,6 +130,7 @@ export const createProviderApp = (runtime: ProviderRuntime, executeRateLimiter?:
     if (typeof body.goal !== "string" || body.goal.trim().length === 0 || body.service !== runtime.offer.service) {
       return context.json({ message: "A supported Service and Task goal are required." }, 400)
     }
+    const goal = body.goal.trim()
 
     let proof: PaymentProof | null
     try {
@@ -115,8 +150,14 @@ export const createProviderApp = (runtime: ProviderRuntime, executeRateLimiter?:
     if (!(await runtime.consumePayment(proof)))
       return context.json({ message: "Payment Proof was already consumed." }, 409)
 
+    if (wantsStream(context.req.raw)) {
+      return streamResearch((onChunk) =>
+        runtime.researchStream ? runtime.researchStream(goal, onChunk) : runtime.research(goal)
+      )
+    }
+
     try {
-      const research = await runtime.research(body.goal.trim())
+      const research = await runtime.research(goal)
       return context.json({ paymentVerified: true, ...research })
     } catch (error) {
       return context.json({ message: error instanceof Error ? error.message : "Research Execution failed." }, 502)
@@ -150,6 +191,8 @@ type ProviderEnvironment = {
 
 type TavilyResponse = { results?: Array<{ title?: unknown; url?: unknown; content?: unknown }> }
 type DeepSeekResponse = { choices?: Array<{ message?: { content?: string } }> }
+type DeepSeekStreamEvent = { choices?: Array<{ delta?: { content?: unknown } }> }
+type ResearchEvidence = Array<{ title: string; url: string; content: string }>
 
 const required = (
   environment: ProviderEnvironment,
@@ -191,24 +234,38 @@ const verifyMonadPayment = (config: ProviderConfig, offer: Offer) => async (proo
   }
 }
 
+const researchEvidence = async (config: ProviderConfig, goal: string): Promise<ResearchEvidence> => {
+  const tavilyResponse = await fetch("https://api.tavily.com/search", {
+    method: "POST",
+    headers: { authorization: `Bearer ${config.tavilyApiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ query: goal, search_depth: "basic", max_results: 5 }),
+  })
+  if (!tavilyResponse.ok) throw new Error(`Tavily search failed with ${tavilyResponse.status}`)
+  const tavily = (await tavilyResponse.json()) as TavilyResponse
+  const evidence = (tavily.results ?? [])
+    .filter(
+      (item): item is { title: string; url: string; content: string } =>
+        typeof item.title === "string" && typeof item.url === "string" && typeof item.content === "string"
+    )
+    .slice(0, 5)
+  if (evidence.length === 0) throw new Error("Tavily search returned no usable Research Evidence")
+  return evidence
+}
+
+const researchMessages = (goal: string, evidence: ResearchEvidence) => [
+  {
+    role: "system",
+    content: "Answer only from the supplied evidence and do not invent sources. Return a concise research summary.",
+  },
+  { role: "user", content: JSON.stringify({ goal, evidence }) },
+]
+
+const citationsFor = (evidence: ResearchEvidence) => evidence.map(({ title, url }) => ({ title, url }))
+
 const researchWithEvidence =
   (config: ProviderConfig) =>
   async (goal: string): Promise<ResearchResult> => {
-    const tavilyResponse = await fetch("https://api.tavily.com/search", {
-      method: "POST",
-      headers: { authorization: `Bearer ${config.tavilyApiKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ query: goal, search_depth: "basic", max_results: 5 }),
-    })
-    if (!tavilyResponse.ok) throw new Error(`Tavily search failed with ${tavilyResponse.status}`)
-    const tavily = (await tavilyResponse.json()) as TavilyResponse
-    const evidence = (tavily.results ?? [])
-      .filter(
-        (item): item is { title: string; url: string; content: string } =>
-          typeof item.title === "string" && typeof item.url === "string" && typeof item.content === "string"
-      )
-      .slice(0, 5)
-    if (evidence.length === 0) throw new Error("Tavily search returned no usable Research Evidence")
-
+    const evidence = await researchEvidence(config, goal)
     const completionResponse = await fetch(`${config.deepseekBaseUrl}/chat/completions`, {
       method: "POST",
       headers: { authorization: `Bearer ${config.deepseekApiKey}`, "content-type": "application/json" },
@@ -233,7 +290,59 @@ const researchWithEvidence =
     if (typeof synthesis.result !== "string" || synthesis.result.trim().length === 0) {
       throw new Error("DeepSeek synthesis returned invalid JSON")
     }
-    return { result: synthesis.result, citations: evidence.map(({ title, url }) => ({ title, url })) }
+    return { result: synthesis.result, citations: citationsFor(evidence) }
+  }
+
+const researchWithEvidenceStream =
+  (config: ProviderConfig) =>
+  async (goal: string, onChunk: (content: string) => void | Promise<void>): Promise<ResearchResult> => {
+    const evidence = await researchEvidence(config, goal)
+    const completionResponse = await fetch(`${config.deepseekBaseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${config.deepseekApiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: config.deepseekModel, stream: true, messages: researchMessages(goal, evidence) }),
+    })
+    if (!completionResponse.ok) throw new Error(`DeepSeek synthesis failed with ${completionResponse.status}`)
+    if (!completionResponse.body) throw new Error("DeepSeek synthesis did not return a stream")
+
+    const reader = completionResponse.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ""
+    let result = ""
+
+    const handleLine = async (line: string) => {
+      if (!line.startsWith("data:")) return
+      const data = line.slice(5).trim()
+      if (!data || data === "[DONE]") return
+      let event: DeepSeekStreamEvent
+      try {
+        event = JSON.parse(data) as DeepSeekStreamEvent
+      } catch {
+        throw new Error("DeepSeek synthesis returned an invalid stream")
+      }
+      const content = event.choices?.[0]?.delta?.content
+      if (typeof content === "string" && content.length > 0) {
+        result += content
+        await onChunk(content)
+      }
+    }
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        buffer += decoder.decode(value, { stream: !done })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
+        for (const line of lines) await handleLine(line)
+        if (done) break
+      }
+      if (buffer) await handleLine(buffer)
+    } finally {
+      reader.releaseLock()
+    }
+
+    if (!result.trim()) throw new Error("DeepSeek synthesis returned no content")
+    return { result, citations: citationsFor(evidence) }
   }
 
 export const createConfiguredProviderApp = (environment: ProviderEnvironment) => {
@@ -256,6 +365,7 @@ export const createConfiguredProviderApp = (environment: ProviderEnvironment) =>
       verifyPayment: verifyMonadPayment(config, offer),
       consumePayment: store.consume,
       research: researchWithEvidence(config),
+      researchStream: researchWithEvidenceStream(config),
     },
     environment.MCPAY_EXECUTE_RATE_LIMITER
   )
