@@ -82,10 +82,7 @@ type TaskView = {
   }
 }
 
-type TaskStreamEvent =
-  | { type: "progress"; progress: { stage: AgentStage; message: string; content?: string } }
-  | { type: "result"; result: TaskView }
-  | { type: "error"; message: string }
+type TaskStreamData = { stage?: AgentStage; message?: string; content?: string } | TaskView | { message: string }
 
 type AgentStage = "planning" | "offers" | "payment" | "execution"
 
@@ -106,32 +103,44 @@ const readTaskStream = async (response: Response, onProgress: (progress: AgentPr
   let buffer = ""
   let task: TaskView | null = null
 
-  const handleLine = (line: string) => {
-    if (!line) return
-    let event: TaskStreamEvent
+  const handleEvent = (frame: string) => {
+    const event = frame.match(/^event:\s*(.+)$/m)?.[1]
+    const data = frame
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim())
+      .join("\n")
+    if (!event || !data) return
+    let payload: TaskStreamData
     try {
-      event = JSON.parse(line) as TaskStreamEvent
+      payload = JSON.parse(data) as TaskStreamData
     } catch {
       throw new Error("The Task stream returned an invalid event.")
     }
-    if (event.type === "progress") {
-      onProgress(event.progress)
+    if (
+      event === "progress" &&
+      "stage" in payload &&
+      typeof payload.stage === "string" &&
+      typeof payload.message === "string"
+    ) {
+      onProgress({ stage: payload.stage, message: payload.message, content: payload.content })
       return
     }
-    if (event.type === "error") throw new Error(event.message)
-    if (event.type === "result") task = event.result
+    if (event === "error" && "message" in payload && typeof payload.message === "string")
+      throw new Error(payload.message)
+    if (event === "result") task = payload as TaskView
   }
 
   try {
     while (true) {
       const { done, value } = await reader.read()
       buffer += decoder.decode(value, { stream: !done })
-      const lines = buffer.split("\n")
-      buffer = lines.pop() ?? ""
-      for (const line of lines) handleLine(line)
+      const events = buffer.split(/\r?\n\r?\n/)
+      buffer = events.pop() ?? ""
+      for (const event of events) handleEvent(event)
       if (done) break
     }
-    if (buffer) handleLine(buffer)
+    if (buffer) handleEvent(buffer)
   } finally {
     reader.releaseLock()
   }
@@ -141,7 +150,7 @@ const readTaskStream = async (response: Response, onProgress: (progress: AgentPr
 }
 
 export const App = () => {
-  const [goal, setGoal] = useState("Research the Monad ecosystem and identify five promising projects.")
+  const [goal, setGoal] = useState("Research the Monad ecosystem and identify five promising projects. Use Chinese reply")
   const [budgetMon, setBudgetMon] = useState("0.01")
   const [task, setTask] = useState<TaskView | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -228,7 +237,7 @@ export const App = () => {
       const response = await fetch("/api/tasks/stream", {
         method: "POST",
         headers: {
-          accept: "application/x-ndjson",
+          accept: "text/event-stream",
           "content-type": "application/json",
           "x-turnstile-token": turnstileToken ?? "",
         },

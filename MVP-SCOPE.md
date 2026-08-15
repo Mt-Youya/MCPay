@@ -19,7 +19,7 @@ Goal + Budget
 
 - [x] React 任务入口与 Turnstile 验证接入
 - [x] `POST /api/tasks` 的非流式路径
-- [x] `POST /api/tasks/stream` 的 NDJSON 流式路径
+- [x] `POST /api/tasks/stream` 的 SSE 流式路径
 - [x] `planning`、`offers`、`payment`、`execution` 四阶段事件
 - [x] 受限于 `web-research` 的 LLM 规划
 - [x] 共享且可测试的 MON 预算比较

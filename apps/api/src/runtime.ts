@@ -34,8 +34,7 @@ type RemoteExecution = {
   result?: string
   citations?: Array<{ title?: unknown; url?: unknown }>
 }
-type RemoteStreamEvent = {
-  type?: unknown
+type RemoteStreamData = {
   content?: unknown
   result?: unknown
   citations?: Array<{ title?: unknown; url?: unknown }>
@@ -195,7 +194,7 @@ const executeRemotelyStream = async (
   const response = await fetch(config.providerExecutionUrl, {
     method: "POST",
     headers: {
-      accept: "application/x-ndjson",
+      accept: "text/event-stream",
       "content-type": "application/json",
       "x-payment-tx": transactionId,
       "x-payment-recipient": paymentRequest.recipient,
@@ -211,24 +210,30 @@ const executeRemotelyStream = async (
   let buffer = ""
   let execution: RemoteExecution | undefined
 
-  const handleLine = async (line: string) => {
-    if (!line) return
-    let event: RemoteStreamEvent
+  const handleEvent = async (frame: string) => {
+    const event = frame.match(/^event:\s*(.+)$/m)?.[1]
+    const data = frame
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trim())
+      .join("\n")
+    if (!event || !data) return
+    let payload: RemoteStreamData
     try {
-      event = JSON.parse(line) as RemoteStreamEvent
+      payload = JSON.parse(data) as RemoteStreamData
     } catch {
       throw new Error("Provider Execution returned an invalid stream")
     }
-    if (event.type === "chunk" && typeof event.content === "string") {
-      await onProgress({ stage: "execution", message: "Research synthesis", content: event.content })
+    if (event === "chunk" && typeof payload.content === "string") {
+      await onProgress({ stage: "execution", message: "Research synthesis", content: payload.content })
       return
     }
-    if (event.type === "error" && typeof event.message === "string") throw new Error(event.message)
-    if (event.type === "result") {
+    if (event === "error" && typeof payload.message === "string") throw new Error(payload.message)
+    if (event === "result") {
       execution = {
         paymentVerified: true,
-        result: typeof event.result === "string" ? event.result : undefined,
-        citations: event.citations,
+        result: typeof payload.result === "string" ? payload.result : undefined,
+        citations: payload.citations,
       }
     }
   }
@@ -237,12 +242,12 @@ const executeRemotelyStream = async (
     while (true) {
       const { done, value } = await reader.read()
       buffer += decoder.decode(value, { stream: !done })
-      const lines = buffer.split("\n")
-      buffer = lines.pop() ?? ""
-      for (const line of lines) await handleLine(line)
+      const events = buffer.split(/\r?\n\r?\n/)
+      buffer = events.pop() ?? ""
+      for (const event of events) await handleEvent(event)
       if (done) break
     }
-    if (buffer) await handleLine(buffer)
+    if (buffer) await handleEvent(buffer)
   } finally {
     reader.releaseLock()
   }

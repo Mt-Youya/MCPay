@@ -123,7 +123,7 @@ describe("MCPay Research Provider", () => {
     })
     const response = await app.request(
       request({
-        accept: "application/x-ndjson",
+        accept: "text/event-stream",
         "x-payment-tx": proof.transactionId,
         "x-payment-recipient": proof.recipient,
         "x-payment-amount": proof.paymentAmountNative,
@@ -131,11 +131,11 @@ describe("MCPay Research Provider", () => {
     )
 
     expect(response.status).toBe(200)
-    expect(response.headers.get("content-type")).toContain("application/x-ndjson")
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
     await expect(response.arrayBuffer().then((body) => new TextDecoder().decode(body))).resolves.toBe(
-      '{"type":"chunk","content":"Monad "}\n' +
-        '{"type":"chunk","content":"research"}\n' +
-        '{"type":"result","result":"Monad research","citations":[{"title":"Monad docs","url":"https://docs.monad.xyz/"}]}\n'
+      'event: chunk\ndata: {"content":"Monad "}\n\n' +
+        'event: chunk\ndata: {"content":"research"}\n\n' +
+        'event: result\ndata: {"result":"Monad research","citations":[{"title":"Monad docs","url":"https://docs.monad.xyz/"}]}\n\n'
     )
   })
 

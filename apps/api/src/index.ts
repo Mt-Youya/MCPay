@@ -155,24 +155,16 @@ const streamTask = (context: Context, runner: TaskRunner, task: ValidTask) => {
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const send = (
-        event:
-          | { type: "progress"; progress: TaskProgress }
-          | { type: "result"; result: TaskResult }
-          | { type: "error"; message: string }
-      ) => {
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+      const send = (event: "progress" | "result" | "error", data: TaskProgress | TaskResult | { message: string }) => {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
       }
 
       void (async () => {
         try {
-          const result = await runner.run(task, async (progress) => send({ type: "progress", progress }))
-          send({ type: "result", result })
+          const result = await runner.run(task, async (progress) => send("progress", progress))
+          send("result", result)
         } catch (caught) {
-          send({
-            type: "error",
-            message: caught instanceof Error ? caught.message : "The Task could not be completed.",
-          })
+          send("error", { message: caught instanceof Error ? caught.message : "The Task could not be completed." })
         } finally {
           controller.close()
         }
@@ -182,7 +174,7 @@ const streamTask = (context: Context, runner: TaskRunner, task: ValidTask) => {
 
   return context.body(stream, 200, {
     "cache-control": "no-cache",
-    "content-type": "application/x-ndjson; charset=utf-8",
+    "content-type": "text/event-stream; charset=utf-8",
   })
 }
 

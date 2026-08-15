@@ -78,27 +78,25 @@ const hasExpectedTerms = (proof: PaymentProof, offer: Offer) =>
 
 const requestClientIp = (request: Request) => request.headers.get("cf-connecting-ip") ?? "unknown"
 
-const wantsStream = (request: Request) => request.headers.get("accept")?.includes("application/x-ndjson") ?? false
+const wantsStream = (request: Request) => request.headers.get("accept")?.includes("text/event-stream") ?? false
 
 const streamResearch = (research: (onChunk: (content: string) => void) => Promise<ResearchResult>) => {
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const send = (
-        event:
-          | { type: "chunk"; content: string }
-          | { type: "result"; result: string; citations: ResearchResult["citations"] }
-          | { type: "error"; message: string }
+        event: "chunk" | "result" | "error",
+        data: { content: string } | { result: string; citations: ResearchResult["citations"] } | { message: string }
       ) => {
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
       }
 
       void (async () => {
         try {
-          const result = await research((content) => send({ type: "chunk", content }))
-          send({ type: "result", ...result })
+          const result = await research((content) => send("chunk", { content }))
+          send("result", result)
         } catch (caught) {
-          send({ type: "error", message: caught instanceof Error ? caught.message : "Research Execution failed." })
+          send("error", { message: caught instanceof Error ? caught.message : "Research Execution failed." })
         } finally {
           controller.close()
         }
@@ -107,7 +105,10 @@ const streamResearch = (research: (onChunk: (content: string) => void) => Promis
   })
 
   return new Response(stream, {
-    headers: { "cache-control": "no-cache", "content-type": "application/x-ndjson; charset=utf-8" },
+    headers: {
+      "cache-control": "no-cache",
+      "content-type": "text/event-stream; charset=utf-8",
+    },
   })
 }
 

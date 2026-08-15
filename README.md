@@ -22,7 +22,7 @@ MCPay 让用户只提供 **任务目标** 与 **MON 预算**，由 Agent 在预�
 | 能力 | 当前实现 |
 | --- | --- |
 | 任务入口 | React Web + Cloudflare Turnstile |
-| 执行反馈 | `POST /api/tasks/stream` 的 NDJSON 阶段事件与正文片段 |
+| 执行反馈 | `POST /api/tasks/stream` 的 SSE 阶段事件与正文片段 |
 | Offer 选择 | 价格、声誉、质量、延迟的确定性评分 |
 | 支付 | Monad Testnet 原生 MON 转账，`viem` 等待成功回执 |
 | Provider | Cloudflare Worker：`/offers`、`/execute`、`/health` |

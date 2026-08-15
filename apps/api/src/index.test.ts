@@ -71,13 +71,17 @@ describe("Task API rate limiting", () => {
     const response = await app.request(taskRequest("203.0.113.10", "/api/tasks/stream"))
 
     expect(response.status).toBe(200)
-    expect(response.headers.get("content-type")).toContain("application/x-ndjson")
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
     const events = (await response.text())
       .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as { type: string; progress?: { stage: string }; result?: unknown })
-    expect(events[0]).toMatchObject({ type: "progress", progress: { stage: "planning" } })
-    expect(events.some((event) => event.progress?.stage === "payment")).toBe(true)
-    expect(events.at(-1)).toMatchObject({ type: "result" })
+      .split("\n\n")
+      .map((frame) => {
+        const event = frame.match(/^event: (.+)$/m)?.[1]
+        const data = JSON.parse(frame.match(/^data: (.+)$/m)?.[1] ?? "{}") as { stage?: string }
+        return { event, data }
+      })
+    expect(events[0]).toMatchObject({ event: "progress", data: { stage: "planning" } })
+    expect(events.some((event) => event.event === "progress" && event.data.stage === "payment")).toBe(true)
+    expect(events.at(-1)).toMatchObject({ event: "result" })
   })
 })

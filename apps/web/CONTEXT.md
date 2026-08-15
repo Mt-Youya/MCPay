@@ -5,7 +5,7 @@ Web owns the browser surface where a User grants a Task goal and MON Budget, pas
 ## Responsibilities
 
 - Render the Task form and submit to `POST /api/tasks/stream`.
-- Read NDJSON without assuming every network chunk maps to one user-visible sentence.
+- Read SSE without assuming every network chunk maps to one user-visible sentence.
 - Present the four execution stages: `planning`、`offers`、`payment`、`execution`。
 - Present the final economics, payment status, research result and citations.
 - Keep the private Agent Wallet and all Provider/LLM credentials out of the browser.

@@ -14,7 +14,7 @@ flowchart LR
   P -->|交易哈希一次性消费| D[(Cloudflare D1)]
   P -->|检索证据| T[Tavily]
   P -->|流式综合| L2[DeepSeek]
-  A -->|NDJSON 进度与结果| W
+  A -->|SSE 进度与结果| W
 ```
 
 ## 主执行序列
@@ -31,7 +31,7 @@ sequenceDiagram
 
   User->>Web: 输入目标与 MON 预算
   Web->>API: POST /api/tasks/stream
-  API-->>Web: planning / offers 进度（NDJSON）
+  API-->>Web: planning / offers 进度（SSE）
   API->>Provider: GET /offers
   API->>Provider: POST /execute（无支付证明）
   Provider-->>API: 402 + 支付条款
@@ -41,7 +41,7 @@ sequenceDiagram
   Provider->>Monad: 核验交易、收款地址、金额
   Provider->>D1: 原子消费交易哈希
   Provider->>AI: 检索证据并流式综合
-  Provider-->>API: chunk / result（NDJSON）
+  Provider-->>API: chunk / result（SSE）
   API-->>Web: execution 正文片段 + 最终结果
 ```
 
@@ -52,7 +52,7 @@ sequenceDiagram
 | 方法与路由 | 作用 | 响应 |
 | --- | --- | --- |
 | `POST /api/tasks` | 非流式创建任务 | 完整任务 JSON |
-| `POST /api/tasks/stream` | 创建任务并观察执行过程 | NDJSON：`progress`、`result`、`error` |
+| `POST /api/tasks/stream` | 创建任务并观察执行过程 | SSE：`progress`、`result`、`error` |
 
 请求体：
 
@@ -62,15 +62,9 @@ sequenceDiagram
 
 进度事件：
 
-```json
-{
-  "type": "progress",
-  "progress": {
-    "stage": "planning | offers | payment | execution",
-    "message": "Monad payment confirmed",
-    "content": "仅在流式研究正文时出现"
-  }
-}
+```text
+event: progress
+data: {"stage":"planning","message":"Planning Task and discovering Offers"}
 ```
 
 ### Provider API
@@ -89,7 +83,7 @@ x-payment-recipient: 0x<40 hex>
 x-payment-amount: <MON atomic units>
 ```
 
-若客户端请求头 `Accept` 包含 `application/x-ndjson`，Provider 返回 `chunk`、`result`、`error` 事件，而不是一次性 JSON。
+若客户端请求头 `Accept` 包含 `text/event-stream`，Provider 返回 SSE 的 `chunk`、`result`、`error` 事件，而不是一次性 JSON。浏览器使用 `fetch` 读取 SSE 响应，因为任务创建需要 `POST` 与 Turnstile 请求头；`EventSource` 仅支持 GET，不能满足这个请求契约。
 
 ## 部署边界
 
