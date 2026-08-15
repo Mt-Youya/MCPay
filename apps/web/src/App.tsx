@@ -150,7 +150,9 @@ const readTaskStream = async (response: Response, onProgress: (progress: AgentPr
 }
 
 export const App = () => {
-  const [goal, setGoal] = useState("Research the Monad ecosystem and identify five promising projects. Use Chinese reply")
+  const [goal, setGoal] = useState(
+    "Research the Monad ecosystem and identify five promising projects. Use Chinese reply"
+  )
   const [budgetMon, setBudgetMon] = useState("0.01")
   const [task, setTask] = useState<TaskView | null>(null)
   const [error, setError] = useState<string | null>(null)
