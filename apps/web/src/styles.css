@@ -1,0 +1,75 @@
+:root {
+  color: #f6f5ef;
+  background: #10130f;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  display: grid;
+  gap: 2rem;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 4rem 1.5rem;
+}
+
+section {
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+  border: 1px solid #3d4938;
+  border-radius: 1rem;
+  background: #182016;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(2rem, 8vw, 4.5rem);
+  line-height: 0.95;
+}
+
+label {
+  display: grid;
+  gap: 0.5rem;
+  font-weight: 700;
+}
+
+textarea,
+input,
+button {
+  border: 1px solid #708167;
+  border-radius: 0.6rem;
+  padding: 0.75rem;
+  font: inherit;
+}
+
+textarea,
+input {
+  color: inherit;
+  background: #11170f;
+}
+
+textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+button {
+  color: #10130f;
+  background: #d7f677;
+  border: 0;
+  font-weight: 800;
+  cursor: pointer;
+}
