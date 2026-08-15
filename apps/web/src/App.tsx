@@ -1,4 +1,24 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
+
+type TurnstileOptions = {
+  sitekey: string
+  action: string
+  callback: (token: string) => void
+  "expired-callback": () => void
+  "error-callback": () => void
+}
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (container: HTMLElement, options: TurnstileOptions) => string
+      reset: (widgetId: string) => void
+      remove: (widgetId: string) => void
+    }
+  }
+}
+
+const turnstileSiteKey = "0x4AAAAAAEQi5uy8WjbcalUB"
 
 type TaskView = {
   plan: {
@@ -10,7 +30,7 @@ type TaskView = {
       offer: {
         id: string
         providerName: string
-        priceUsd: string
+        priceMon: string
         reputation: number
         quality: number
         latencyMs: number
@@ -20,7 +40,7 @@ type TaskView = {
     selected: {
       offer: {
         providerName: string
-        priceUsd: string
+        priceMon: string
       }
       reason: string
     }
@@ -30,7 +50,7 @@ type TaskView = {
         state: "completed"
         paymentRequest: {
           protocolStatus: number
-          amountUsd: string
+          amountMon: string
           recipient: string
           network: string
           paymentAmountNative: string
@@ -43,6 +63,7 @@ type TaskView = {
         execution: {
           state: "completed"
           result: string
+          citations: Array<{ title: string; url: string }>
         }
       }
     | {
@@ -55,7 +76,7 @@ type TaskView = {
     provider: "demo" | "remote"
   }
   economics: {
-    spentUsd: string
+    spentMon: string
     servicesPurchased: number
     humanApprovals: number
   }
@@ -63,10 +84,39 @@ type TaskView = {
 
 export const App = () => {
   const [goal, setGoal] = useState("Research the Monad ecosystem and identify five promising projects.")
-  const [budgetUsd, setBudgetUsd] = useState("0.10")
+  const [budgetMon, setBudgetMon] = useState("0.01")
   const [task, setTask] = useState<TaskView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const turnstileElement = useRef<HTMLDivElement>(null)
+  const turnstileWidgetId = useRef<string | null>(null)
+
+  useEffect(() => {
+    const render = () => {
+      if (!turnstileElement.current || !window.turnstile || turnstileWidgetId.current) return
+
+      turnstileWidgetId.current = window.turnstile.render(turnstileElement.current, {
+        sitekey: turnstileSiteKey,
+        action: "task-submit",
+        callback: setTurnstileToken,
+        "expired-callback": () => setTurnstileToken(null),
+        "error-callback": () => setTurnstileToken(null),
+      })
+    }
+
+    const script = document.querySelector<HTMLScriptElement>(
+      'script[src^="https://challenges.cloudflare.com/turnstile/"]'
+    )
+    if (window.turnstile) render()
+    else script?.addEventListener("load", render, { once: true })
+
+    return () => {
+      script?.removeEventListener("load", render)
+      if (turnstileWidgetId.current) window.turnstile?.remove(turnstileWidgetId.current)
+      turnstileWidgetId.current = null
+    }
+  }, [])
 
   const runTask = async () => {
     setIsRunning(true)
@@ -76,8 +126,8 @@ export const App = () => {
     try {
       const response = await fetch("/api/tasks", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ goal, budgetUsd }),
+        headers: { "content-type": "application/json", "x-turnstile-token": turnstileToken ?? "" },
+        body: JSON.stringify({ goal, budgetMon }),
       })
       const payload = (await response.json()) as TaskView & { message?: string }
 
@@ -89,6 +139,8 @@ export const App = () => {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "The Task could not be created.")
     } finally {
+      if (turnstileWidgetId.current) window.turnstile?.reset(turnstileWidgetId.current)
+      setTurnstileToken(null)
       setIsRunning(false)
     }
   }
@@ -103,10 +155,11 @@ export const App = () => {
           <textarea value={goal} onChange={(event) => setGoal(event.target.value)} />
         </label>
         <label>
-          Task Budget
-          <input value={budgetUsd} onChange={(event) => setBudgetUsd(event.target.value)} inputMode="decimal" />
+          Task Budget (MON)
+          <input value={budgetMon} onChange={(event) => setBudgetMon(event.target.value)} inputMode="decimal" />
         </label>
-        <button type="button" onClick={runTask} disabled={isRunning}>
+        <div ref={turnstileElement} />
+        <button type="button" onClick={runTask} disabled={isRunning || !turnstileToken}>
           {isRunning ? "Planning…" : "Run Agent"}
         </button>
       </section>
@@ -120,12 +173,12 @@ export const App = () => {
           <p>{task.plan.explanation}</p>
           <h2>{task.ranking.selected.offer.providerName} selected</h2>
           <p>{task.ranking.selected.reason}</p>
-          <p>${task.ranking.selected.offer.priceUsd}</p>
+          <p>{task.ranking.selected.offer.priceMon} MON</p>
           <h2>Provider comparison</h2>
           <ul aria-label="Provider Offers">
             {task.ranking.offers.map(({ offer }) => (
               <li key={offer.id}>
-                <strong>{offer.providerName}</strong> · ${offer.priceUsd} · Reputation {offer.reputation} · Quality{" "}
+                <strong>{offer.providerName}</strong> · {offer.priceMon} MON · Reputation {offer.reputation} · Quality{" "}
                 {offer.quality} · {offer.latencyMs} ms
               </li>
             ))}
@@ -138,19 +191,26 @@ export const App = () => {
             <>
               <h2>HTTP {task.purchase.paymentRequest.protocolStatus} · Payment Required</h2>
               <p>
-                ${task.purchase.paymentRequest.amountUsd} on {task.purchase.paymentRequest.network}
+                {task.purchase.paymentRequest.amountMon} MON on {task.purchase.paymentRequest.network}
               </p>
               <p>Payment confirmed</p>
               <p>Provider verified payment</p>
               <p>Execution complete</p>
               <p>{task.purchase.execution.result}</p>
+              <ul aria-label="Research sources">
+                {task.purchase.execution.citations.map((citation) => (
+                  <li key={citation.url}>
+                    <a href={citation.url}>{citation.title}</a>
+                  </li>
+                ))}
+              </ul>
               <p>Transaction: {task.purchase.payment.transactionId}</p>
             </>
           ) : (
             <p role="alert">{task.purchase.message}</p>
           )}
           <h2>Task economics</h2>
-          <p>Spent: ${task.economics.spentUsd}</p>
+          <p>Spent: {task.economics.spentMon} MON</p>
           <p>Services purchased: {task.economics.servicesPurchased}</p>
           <p>Human approvals: {task.economics.humanApprovals}</p>
         </section>

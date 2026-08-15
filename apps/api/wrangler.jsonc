@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "mcpay-app",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "mcpay.yonjay.me", "custom_domain": true }],
+  "assets": {
+    "directory": "../web/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "ratelimits": [
+    {
+      "name": "MCPAY_TASK_RATE_LIMITER",
+      "namespace_id": "900002",
+      "simple": { "limit": 10, "period": 60 }
+    }
+  ],
+  "vars": {
+    "MCPAY_RUNTIME_MODE": "live",
+    "MCPAY_LLM_BASE_URL": "https://api.deepseek.com",
+    "MCPAY_LLM_MODEL": "deepseek-v4-pro",
+    "MCPAY_OFFERS_URL": "https://mcpay-research-provider.dd257248.workers.dev/offers",
+    "MCPAY_MONAD_RPC_URL": "https://testnet-rpc.monad.xyz/",
+    "MCPAY_MONAD_CHAIN_ID": "10143",
+    "MCPAY_PROVIDER_EXECUTION_URL": "https://mcpay-research-provider.dd257248.workers.dev/execute",
+    "MCPAY_TURNSTILE_HOSTNAMES": "mcpay.yonjay.me"
+  },
+  "secrets": {
+    "required": [
+      "MCPAY_LLM_API_KEY",
+      "MCPAY_AGENT_PRIVATE_KEY",
+      "MCPAY_TURNSTILE_SECRET"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.1 }
+  }
+}

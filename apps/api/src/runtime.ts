@@ -16,24 +16,40 @@ type LiveConfig = {
   offersUrl: string
 }
 
+export type RuntimeEnvironment = {
+  MCPAY_RUNTIME_MODE?: string
+  MCPAY_LLM_API_KEY?: string
+  MCPAY_LLM_BASE_URL?: string
+  MCPAY_LLM_MODEL?: string
+  MCPAY_MONAD_RPC_URL?: string
+  MCPAY_MONAD_CHAIN_ID?: string
+  MCPAY_AGENT_PRIVATE_KEY?: string
+  MCPAY_PROVIDER_EXECUTION_URL?: string
+  MCPAY_OFFERS_URL?: string
+}
+
 type LlmCompletion = { choices?: Array<{ message?: { content?: string } }> }
-type RemoteExecution = { paymentVerified?: boolean; result?: string }
+type RemoteExecution = {
+  paymentVerified?: boolean
+  result?: string
+  citations?: Array<{ title?: unknown; url?: unknown }>
+}
 type PaymentRequest = {
   protocolStatus: 402
-  amountUsd: string
+  amountMon: string
   recipient: `0x${string}`
   network: "monad"
   paymentAmountNative: string
 }
 
-const required = (environment: NodeJS.ProcessEnv, name: keyof LiveConfig) => {
-  const environmentName = `MCPAY_${name.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase()}`
+const required = (environment: RuntimeEnvironment, name: keyof LiveConfig) => {
+  const environmentName = `MCPAY_${name.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase()}` as keyof RuntimeEnvironment
   const value = environment[environmentName]
   if (!value) throw new Error(`${name} is required when MCPAY_RUNTIME_MODE=live`)
   return value
 }
 
-const liveConfig = (environment: NodeJS.ProcessEnv): LiveConfig => ({
+const liveConfig = (environment: RuntimeEnvironment): LiveConfig => ({
   llmApiKey: required(environment, "llmApiKey"),
   llmBaseUrl: required(environment, "llmBaseUrl").replace(/\/$/, ""),
   llmModel: required(environment, "llmModel"),
@@ -82,20 +98,20 @@ const planTask = async (config: LiveConfig, goal: string) => {
 
 const requestPayment = async (
   config: LiveConfig,
-  task: { goal: string; budgetUsd: string },
+  task: { goal: string; budgetMon: string },
   offer: Offer
 ): Promise<PaymentRequest> => {
   const response = await fetch(config.providerExecutionUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ goal: task.goal, budgetUsd: task.budgetUsd, service: offer.service }),
+    body: JSON.stringify({ goal: task.goal, budgetMon: task.budgetMon, service: offer.service }),
   })
   if (response.status !== 402)
     throw new Error(`Provider did not return a Payment Request (received ${response.status})`)
   const paymentRequest = (await response.json()) as Partial<PaymentRequest>
   if (
     paymentRequest.protocolStatus !== 402 ||
-    paymentRequest.amountUsd !== offer.priceUsd ||
+    paymentRequest.amountMon !== offer.priceMon ||
     paymentRequest.recipient !== offer.recipient ||
     paymentRequest.network !== "monad" ||
     paymentRequest.paymentAmountNative !== offer.paymentAmountNative
@@ -127,7 +143,7 @@ const settleOnMonad = async (config: LiveConfig, paymentRequest: PaymentRequest)
 
 const executeRemotely = async (
   config: LiveConfig,
-  task: { goal: string; budgetUsd: string },
+  task: { goal: string; budgetMon: string },
   offer: Offer,
   paymentRequest: PaymentRequest,
   transactionId: string
@@ -140,14 +156,20 @@ const executeRemotely = async (
       "x-payment-recipient": paymentRequest.recipient,
       "x-payment-amount": paymentRequest.paymentAmountNative,
     },
-    body: JSON.stringify({ goal: task.goal, budgetUsd: task.budgetUsd, service: offer.service }),
+    body: JSON.stringify({ goal: task.goal, budgetMon: task.budgetMon, service: offer.service }),
   })
   if (!response.ok) throw new Error(`Provider Execution failed with ${response.status}`)
   const execution = (await response.json()) as RemoteExecution
   if (execution.paymentVerified !== true || typeof execution.result !== "string") {
     throw new Error("Provider did not verify Payment before Execution")
   }
-  return execution.result
+  if (
+    !Array.isArray(execution.citations) ||
+    execution.citations.some((citation) => typeof citation.title !== "string" || typeof citation.url !== "string")
+  ) {
+    throw new Error("Provider Execution returned invalid citations")
+  }
+  return { result: execution.result, citations: execution.citations as Array<{ title: string; url: string }> }
 }
 
 const createLiveTaskRunner = (config: LiveConfig): TaskRunner => ({
@@ -160,13 +182,13 @@ const createLiveTaskRunner = (config: LiveConfig): TaskRunner => ({
 
     const paymentRequest = await requestPayment(config, task, selectedOffer)
 
-    if (!canAfford(task.budgetUsd, paymentRequest.amountUsd)) {
+    if (!canAfford(task.budgetMon, paymentRequest.amountMon)) {
       return {
         task: { id: crypto.randomUUID(), ...task },
         plan,
         ranking,
         integration: { planner: "llm", settlement: "monad", provider: "remote" },
-        economics: { spentUsd: "0.0000", servicesPurchased: 0, humanApprovals: 0 },
+        economics: { spentMon: "0.0000", servicesPurchased: 0, humanApprovals: 0 },
         purchase: {
           state: "budget-exceeded",
           message: "The selected Offer exceeds this Task Budget. No Payment or Execution was created.",
@@ -175,25 +197,25 @@ const createLiveTaskRunner = (config: LiveConfig): TaskRunner => ({
     }
 
     const transactionId = await settleOnMonad(config, paymentRequest)
-    const result = await executeRemotely(config, task, selectedOffer, paymentRequest, transactionId)
+    const execution = await executeRemotely(config, task, selectedOffer, paymentRequest, transactionId)
     return {
       task: { id: crypto.randomUUID(), ...task },
       plan,
       ranking,
       integration: { planner: "llm", settlement: "monad", provider: "remote" },
-      economics: { spentUsd: selectedOffer.priceUsd, servicesPurchased: 1, humanApprovals: 0 },
+      economics: { spentMon: selectedOffer.priceMon, servicesPurchased: 1, humanApprovals: 0 },
       purchase: {
         state: "completed",
         paymentRequest,
         payment: { state: "confirmed", transactionId },
         providerVerification: "verified",
-        execution: { state: "completed", result },
+        execution: { state: "completed", ...execution },
       },
     }
   },
 })
 
-export const createConfiguredTaskRunner = (environment: NodeJS.ProcessEnv = process.env): TaskRunner => {
+export const createConfiguredTaskRunner = (environment: RuntimeEnvironment = process.env): TaskRunner => {
   if (environment.MCPAY_RUNTIME_MODE !== "live") return createDemoTaskRunner()
   return createLiveTaskRunner(liveConfig(environment))
 }

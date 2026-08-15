@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest"
 
-import { rankOffers, type Offer } from "./index.js"
+import { canAfford, rankOffers, type Offer } from "./index.js"
 
 const offers: Offer[] = [
   {
     id: "search-cheap",
     providerName: "SearchCheap",
     service: "web-research",
-    priceUsd: "0.0005",
+    priceMon: "0.0005",
     reputation: 82,
     quality: 80,
     latencyMs: 200,
@@ -18,7 +18,7 @@ const offers: Offer[] = [
     id: "search-pro",
     providerName: "SearchPro",
     service: "web-research",
-    priceUsd: "0.0010",
+    priceMon: "0.0010",
     reputation: 97,
     quality: 95,
     latencyMs: 180,
@@ -34,5 +34,10 @@ describe("rankOffers", () => {
     expect(ranking.selected.offer.id).toBe("search-pro")
     expect(ranking.selected.reason).toContain("SearchPro")
     expect(ranking.offers.map(({ offer }) => offer.id)).toEqual(["search-pro", "search-cheap"])
+  })
+
+  it("compares MON Budgets without floating-point rounding", () => {
+    expect(canAfford("0.001", "0.001")).toBe(true)
+    expect(canAfford("0.0009", "0.001")).toBe(false)
   })
 })

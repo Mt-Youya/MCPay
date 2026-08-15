@@ -18,7 +18,7 @@ const offer = {
   id: "search-pro",
   providerName: "SearchPro",
   service: "web-research",
-  priceUsd: "0.0010",
+  priceMon: "0.0010",
   reputation: 97,
   quality: 95,
   latencyMs: 180,
@@ -44,7 +44,7 @@ describe("live Task runner", () => {
       return Response.json(
         {
           protocolStatus: 402,
-          amountUsd: offer.priceUsd,
+          amountMon: offer.priceMon,
           recipient: offer.recipient,
           network: "monad",
           paymentAmountNative: offer.paymentAmountNative,
@@ -56,7 +56,7 @@ describe("live Task runner", () => {
 
     const result = await createConfiguredTaskRunner(environment).run({
       goal: "Research Monad ecosystem projects",
-      budgetUsd: "0.0001",
+      budgetMon: "0.0001",
     })
 
     expect(result.purchase.state).toBe("budget-exceeded")
@@ -77,7 +77,7 @@ describe("live Task runner", () => {
       return Response.json(
         {
           protocolStatus: 402,
-          amountUsd: offer.priceUsd,
+          amountMon: offer.priceMon,
           recipient: offer.recipient,
           network: "monad",
           paymentAmountNative: "1000000000000000000000",
@@ -87,7 +87,7 @@ describe("live Task runner", () => {
     })
 
     await expect(
-      createConfiguredTaskRunner(environment).run({ goal: "Research Monad ecosystem projects", budgetUsd: "0.10" })
+      createConfiguredTaskRunner(environment).run({ goal: "Research Monad ecosystem projects", budgetMon: "0.10" })
     ).rejects.toThrow("Provider Payment Request does not match the selected Offer")
   })
 })

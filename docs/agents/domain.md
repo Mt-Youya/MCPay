@@ -19,7 +19,8 @@ MCPay uses a multi-context monorepo layout:
 ├── docs/adr/                    # system-wide decisions
 ├── apps/
 │   ├── web/                     # User-facing Task experience
-│   └── api/                     # Task orchestration and integrations
+│   ├── api/                     # Task orchestration and integrations
+│   └── provider/                # Paid research service and Payment Proof consumption
 └── packages/
     └── commerce/                # shared commerce contracts and rules
 ```

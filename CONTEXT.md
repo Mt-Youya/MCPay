@@ -56,6 +56,18 @@ _Avoid_: Invoice, checkout, subscription
 A transfer of value from an Agent Wallet to a Provider in exchange for authorization to perform an Execution.
 _Avoid_: Deposit, charge, purchase order
 
+**Payment Proof**:
+The Monad transaction hash an Agent presents to a Provider after Payment so the Provider can authorize one Execution.
+_Avoid_: Receipt, token, invoice ID
+
+**Settlement Amount**:
+The amount of a network's native currency named in a Payment Request and transferred during Payment.
+_Avoid_: Dollar price, displayed price, estimate
+
+**Payment Consumption**:
+The Provider's one-time recording of a verified Payment Proof for an Execution, preventing it from authorizing another Execution.
+_Avoid_: Replay cache, nonce, debit
+
 **Settlement**:
 The final recording and transfer of value for a Payment on the shared blockchain network.
 _Avoid_: Billing, accounting

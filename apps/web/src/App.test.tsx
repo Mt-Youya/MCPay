@@ -1,19 +1,42 @@
 import "@testing-library/jest-dom/vitest"
 
+import { StrictMode } from "react"
 import { cleanup, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createApp } from "@mcpay/api"
 
 import { App } from "./App"
 
+beforeEach(() => {
+  window.turnstile = {
+    render: vi.fn((_container, options) => {
+      options.callback("verified-test-token")
+      return "test-widget"
+    }),
+    reset: vi.fn(),
+    remove: vi.fn(),
+  }
+})
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  delete window.turnstile
 })
 
 describe("MCPay Task golden path", () => {
+  it("renders Turnstile after StrictMode remounts the task form", () => {
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>
+    )
+
+    expect(window.turnstile?.render).toHaveBeenCalledTimes(2)
+  })
+
   it("shows the selected Provider after a User submits a Task", async () => {
     const api = createApp()
     vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
@@ -25,8 +48,8 @@ describe("MCPay Task golden path", () => {
     render(<App />)
 
     await user.type(screen.getByLabelText("Task goal"), "Research Monad ecosystem projects")
-    await user.clear(screen.getByLabelText("Task Budget"))
-    await user.type(screen.getByLabelText("Task Budget"), "0.10")
+    await user.clear(screen.getByLabelText("Task Budget (MON)"))
+    await user.type(screen.getByLabelText("Task Budget (MON)"), "0.01")
     await user.click(screen.getByRole("button", { name: "Run Agent" }))
 
     expect(await screen.findByText("SearchPro selected")).toBeVisible()
@@ -64,15 +87,15 @@ describe("MCPay Task golden path", () => {
 
     render(<App />)
 
-    await user.clear(screen.getByLabelText("Task Budget"))
-    await user.type(screen.getByLabelText("Task Budget"), "0.0001")
+    await user.clear(screen.getByLabelText("Task Budget (MON)"))
+    await user.type(screen.getByLabelText("Task Budget (MON)"), "0.0001")
     await user.click(screen.getByRole("button", { name: "Run Agent" }))
 
     expect(
       await screen.findByText("The selected Offer exceeds this Task Budget. No Payment or Execution was created.")
     ).toBeVisible()
     expect(screen.queryByText("Payment confirmed")).not.toBeInTheDocument()
-    expect(screen.getByText("Spent: $0.0000")).toBeVisible()
+    expect(screen.getByText("Spent: 0.0000 MON")).toBeVisible()
   })
 
   it("shows a clear Provider failure instead of a completed Execution", async () => {

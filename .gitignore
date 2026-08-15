@@ -3,3 +3,9 @@ node_modules
 dist
 .env.*
 .env
+.dev.vars*
+.wrangler
+*.example
+.claude
+.agents
+agent

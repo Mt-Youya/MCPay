@@ -1,5 +1,5 @@
 {
-  "name": "@mcpay/api",
+  "name": "@mcpay/provider",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -8,25 +8,25 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "predev": "pnpm --filter @mcpay/commerce build",
-    "dev": "tsx watch src/server.ts",
+    "cf:d1:create": "wrangler d1 create mcpay-provider",
+    "cf:deploy": "wrangler deploy",
+    "cf:login": "wrangler login",
+    "cf:migrate:local": "wrangler d1 migrations apply mcpay-provider --local",
+    "cf:migrate": "wrangler d1 migrations apply mcpay-provider --remote",
     "cf:types": "wrangler types worker-configuration.d.ts",
-    "cf:deploy": "pnpm --filter @mcpay/commerce build && pnpm --filter @mcpay/web build && wrangler deploy",
-    "cf:deploy:dry-run": "pnpm --filter @mcpay/commerce build && pnpm --filter @mcpay/web build && wrangler deploy --dry-run",
-    "test": "vitest run src --passWithNoTests",
+    "predev": "pnpm cf:migrate:local",
+    "dev": "wrangler dev",
+    "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.8",
     "@mcpay/commerce": "workspace:*",
-    "dotenv": "^17.2.3",
     "hono": "^4.11.9",
     "viem": "^2.47.6"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.21.3",
     "@types/node": "^26.2.0",
-    "tsx": "^4.21.0",
     "wrangler": "^4.123.0"
   }
 }

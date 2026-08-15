@@ -2,7 +2,7 @@ export type Offer = {
   id: string
   providerName: string
   service: string
-  priceUsd: string
+  priceMon: string
   reputation: number
   quality: number
   latencyMs: number
@@ -21,19 +21,19 @@ export type OfferRanking = {
   selected: RankedOffer
 }
 
-const usdMicros = (amount: string) => {
+const monAtomicUnits = (amount: string) => {
   const [whole = "0", fraction = ""] = amount.trim().split(".")
   if (!/^\d+$/.test(whole) || !/^\d*$/.test(fraction)) {
-    throw new Error("USD amounts must be non-negative decimal strings")
+    throw new Error("MON amounts must be non-negative decimal strings")
   }
 
-  return BigInt(whole) * 1_000_000n + BigInt(`${fraction}000000`.slice(0, 6))
+  return BigInt(whole) * 1_000_000_000_000_000_000n + BigInt(`${fraction}000000000000000000`.slice(0, 18))
 }
 
-export const canAfford = (budgetUsd: string, priceUsd: string) => usdMicros(budgetUsd) >= usdMicros(priceUsd)
+export const canAfford = (budgetMon: string, priceMon: string) => monAtomicUnits(budgetMon) >= monAtomicUnits(priceMon)
 
 const offerScore = (offer: Offer, highestPrice: number, slowestLatency: number) => {
-  const price = Number.parseFloat(offer.priceUsd)
+  const price = Number.parseFloat(offer.priceMon)
   const priceScore = highestPrice === 0 ? 1 : 1 - price / highestPrice
   const latencyScore = slowestLatency === 0 ? 1 : 1 - offer.latencyMs / slowestLatency
 
@@ -45,7 +45,7 @@ export const rankOffers = (offers: Offer[]): OfferRanking => {
     throw new Error("At least one Offer is required")
   }
 
-  const highestPrice = Math.max(...offers.map((offer) => Number.parseFloat(offer.priceUsd)))
+  const highestPrice = Math.max(...offers.map((offer) => Number.parseFloat(offer.priceMon)))
   const slowestLatency = Math.max(...offers.map((offer) => offer.latencyMs))
   const rankedOffers = offers
     .map((offer) => {

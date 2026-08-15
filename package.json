@@ -8,10 +8,11 @@
   "author": "",
   "type": "module",
   "scripts": {
-    "build": "pnpm --filter @mcpay/commerce --filter @mcpay/api --filter @mcpay/web -r build",
+    "build": "pnpm --filter @mcpay/commerce --filter @mcpay/api --filter @mcpay/provider --filter @mcpay/web -r build",
     "dev": "pnpm --filter @mcpay/commerce build && pnpm --parallel --filter @mcpay/api --filter @mcpay/web dev",
-    "test": "pnpm --filter @mcpay/commerce --filter @mcpay/api --filter @mcpay/web -r test",
-    "typecheck": "pnpm --filter @mcpay/commerce --filter @mcpay/api --filter @mcpay/web -r typecheck"
+    "dev:provider": "pnpm --filter @mcpay/provider dev",
+    "test": "pnpm --filter @mcpay/commerce --filter @mcpay/api --filter @mcpay/provider --filter @mcpay/web -r test",
+    "typecheck": "pnpm --filter @mcpay/commerce --filter @mcpay/api --filter @mcpay/provider --filter @mcpay/web -r typecheck"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
