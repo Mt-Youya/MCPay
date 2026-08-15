@@ -2,6 +2,7 @@ import { createFixedWindowRateLimiter } from "./rate-limit.js"
 import type { ApiSecurity } from "./index.js"
 import type { RuntimeEnvironment } from "./runtime.js"
 import type { TaskRateLimiter } from "./rate-limit.js"
+import { createWalletAccess, type WalletAccessDatabase } from "./wallet-access.js"
 
 type TurnstileResponse = { success?: unknown; action?: unknown; hostname?: unknown }
 
@@ -11,6 +12,7 @@ type TurnstileConfig = {
 }
 
 type SecurityEnvironment = RuntimeEnvironment & {
+  MCPAY_API_DB?: WalletAccessDatabase
   MCPAY_TURNSTILE_SECRET?: string
   MCPAY_TURNSTILE_HOSTNAMES?: string
 }
@@ -57,12 +59,14 @@ export const createConfiguredApiSecurity = (
       .filter(Boolean)
   )
   if (expectedHostnames.size === 0) throw new Error("MCPAY_TURNSTILE_HOSTNAMES must include at least one hostname")
-
   return {
     taskRateLimiter,
     verifyTaskTurnstile: taskTurnstileVerifier({
       secret: required(environment, "MCPAY_TURNSTILE_SECRET"),
       expectedHostnames,
     }),
+    ...(environment.MCPAY_API_DB
+      ? { walletAccess: createWalletAccess({ database: environment.MCPAY_API_DB }), requireWalletAuth: true }
+      : {}),
   }
 }

@@ -14,12 +14,21 @@ export type ResearchResult = {
   citations: Array<{ title: string; url: string }>
 }
 
+export type ResearchRequirements = { sourceCount: number; outputTargetChars: number }
+
+const defaultResearchRequirements: ResearchRequirements = { sourceCount: 5, outputTargetChars: 1000 }
+
 export type ProviderRuntime = {
   offer: Offer
-  verifyPayment: (proof: PaymentProof) => Promise<void>
+  quote?: (requirements: ResearchRequirements) => Offer
+  verifyPayment: (proof: PaymentProof, offer: Offer) => Promise<void>
   consumePayment: (proof: PaymentProof) => Promise<boolean>
-  research: (goal: string) => Promise<ResearchResult>
-  researchStream?: (goal: string, onChunk: (content: string) => void | Promise<void>) => Promise<ResearchResult>
+  research: (goal: string, requirements: ResearchRequirements) => Promise<ResearchResult>
+  researchStream?: (
+    goal: string,
+    requirements: ResearchRequirements,
+    onChunk: (content: string) => void | Promise<void>
+  ) => Promise<ResearchResult>
 }
 
 export type ExecutionRateLimiter = {
@@ -80,6 +89,34 @@ const requestClientIp = (request: Request) => request.headers.get("cf-connecting
 
 const wantsStream = (request: Request) => request.headers.get("accept")?.includes("text/event-stream") ?? false
 
+const parseRequirements = (sourceCount: unknown, outputTargetChars: unknown): ResearchRequirements | null => {
+  const count = sourceCount ?? defaultResearchRequirements.sourceCount
+  const output = outputTargetChars ?? defaultResearchRequirements.outputTargetChars
+  if (
+    typeof count !== "number" ||
+    !Number.isInteger(count) ||
+    count < 1 ||
+    count > 10 ||
+    typeof output !== "number" ||
+    !Number.isInteger(output) ||
+    output < 250 ||
+    output > 4000
+  ) {
+    return null
+  }
+  return { sourceCount: count, outputTargetChars: output }
+}
+
+const queryRequirements = (request: Request) => {
+  const url = new URL(request.url)
+  const sourceCount = url.searchParams.get("sourceCount")
+  const outputTargetChars = url.searchParams.get("outputTargetChars")
+  return parseRequirements(
+    sourceCount ? Number(sourceCount) : undefined,
+    outputTargetChars ? Number(outputTargetChars) : undefined
+  )
+}
+
 const streamResearch = (research: (onChunk: (content: string) => void) => Promise<ResearchResult>) => {
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
@@ -114,9 +151,15 @@ const streamResearch = (research: (onChunk: (content: string) => void) => Promis
 
 export const createProviderApp = (runtime: ProviderRuntime, executeRateLimiter?: ExecutionRateLimiter) => {
   const app = new Hono()
+  const quote = (requirements: ResearchRequirements) => runtime.quote?.(requirements) ?? runtime.offer
 
   app.get("/health", (context) => context.json({ status: "ok" }))
-  app.get("/offers", (context) => context.json({ offers: [runtime.offer] }))
+  app.get("/offers", (context) => {
+    const requirements = queryRequirements(context.req.raw)
+    if (!requirements)
+      return context.json({ message: "Source count must be 1–10 and output length must be 250–4000 characters." }, 400)
+    return context.json({ offers: [quote(requirements)] })
+  })
 
   app.post("/execute", async (context) => {
     if (executeRateLimiter) {
@@ -127,10 +170,19 @@ export const createProviderApp = (runtime: ProviderRuntime, executeRateLimiter?:
       }
     }
 
-    const body = (await context.req.json()) as { goal?: unknown; service?: unknown }
-    if (typeof body.goal !== "string" || body.goal.trim().length === 0 || body.service !== runtime.offer.service) {
+    const body = (await context.req.json()) as {
+      goal?: unknown
+      service?: unknown
+      sourceCount?: unknown
+      outputTargetChars?: unknown
+    }
+    const requirements = parseRequirements(body.sourceCount, body.outputTargetChars)
+    if (!requirements || typeof body.goal !== "string" || body.goal.trim().length === 0) {
       return context.json({ message: "A supported Service and Task goal are required." }, 400)
     }
+    const offer = quote(requirements)
+    if (body.service !== offer.service)
+      return context.json({ message: "A supported Service and Task goal are required." }, 400)
     const goal = body.goal.trim()
 
     let proof: PaymentProof | null
@@ -139,12 +191,12 @@ export const createProviderApp = (runtime: ProviderRuntime, executeRateLimiter?:
     } catch (error) {
       return context.json({ message: error instanceof Error ? error.message : "Payment Proof is invalid" }, 400)
     }
-    if (!proof) return context.json(paymentRequest(runtime.offer), 402)
-    if (!hasExpectedTerms(proof, runtime.offer))
+    if (!proof) return context.json(paymentRequest(offer), 402)
+    if (!hasExpectedTerms(proof, offer))
       return context.json({ message: "Payment Proof terms do not match Offer." }, 400)
 
     try {
-      await runtime.verifyPayment(proof)
+      await runtime.verifyPayment(proof, offer)
     } catch (error) {
       return context.json({ message: error instanceof Error ? error.message : "Payment Proof was not verified." }, 402)
     }
@@ -153,12 +205,14 @@ export const createProviderApp = (runtime: ProviderRuntime, executeRateLimiter?:
 
     if (wantsStream(context.req.raw)) {
       return streamResearch((onChunk) =>
-        runtime.researchStream ? runtime.researchStream(goal, onChunk) : runtime.research(goal)
+        runtime.researchStream
+          ? runtime.researchStream(goal, requirements, onChunk)
+          : runtime.research(goal, requirements)
       )
     }
 
     try {
-      const research = await runtime.research(goal)
+      const research = await runtime.research(goal, requirements)
       return context.json({ paymentVerified: true, ...research })
     } catch (error) {
       return context.json({ message: error instanceof Error ? error.message : "Research Execution failed." }, 502)
@@ -235,11 +289,15 @@ const verifyMonadPayment = (config: ProviderConfig, offer: Offer) => async (proo
   }
 }
 
-const researchEvidence = async (config: ProviderConfig, goal: string): Promise<ResearchEvidence> => {
+const researchEvidence = async (
+  config: ProviderConfig,
+  goal: string,
+  requirements: ResearchRequirements
+): Promise<ResearchEvidence> => {
   const tavilyResponse = await fetch("https://api.tavily.com/search", {
     method: "POST",
     headers: { authorization: `Bearer ${config.tavilyApiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({ query: goal, search_depth: "basic", max_results: 5 }),
+    body: JSON.stringify({ query: goal, search_depth: "basic", max_results: requirements.sourceCount }),
   })
   if (!tavilyResponse.ok) throw new Error(`Tavily search failed with ${tavilyResponse.status}`)
   const tavily = (await tavilyResponse.json()) as TavilyResponse
@@ -248,15 +306,15 @@ const researchEvidence = async (config: ProviderConfig, goal: string): Promise<R
       (item): item is { title: string; url: string; content: string } =>
         typeof item.title === "string" && typeof item.url === "string" && typeof item.content === "string"
     )
-    .slice(0, 5)
+    .slice(0, requirements.sourceCount)
   if (evidence.length === 0) throw new Error("Tavily search returned no usable Research Evidence")
   return evidence
 }
 
-const researchMessages = (goal: string, evidence: ResearchEvidence) => [
+const researchMessages = (goal: string, evidence: ResearchEvidence, requirements: ResearchRequirements) => [
   {
     role: "system",
-    content: "Answer only from the supplied evidence and do not invent sources. Return a concise research summary.",
+    content: `Answer only from the supplied evidence and do not invent sources. Target approximately ${requirements.outputTargetChars} characters.`,
   },
   { role: "user", content: JSON.stringify({ goal, evidence }) },
 ]
@@ -265,8 +323,8 @@ const citationsFor = (evidence: ResearchEvidence) => evidence.map(({ title, url 
 
 const researchWithEvidence =
   (config: ProviderConfig) =>
-  async (goal: string): Promise<ResearchResult> => {
-    const evidence = await researchEvidence(config, goal)
+  async (goal: string, requirements: ResearchRequirements): Promise<ResearchResult> => {
+    const evidence = await researchEvidence(config, goal, requirements)
     const completionResponse = await fetch(`${config.deepseekBaseUrl}/chat/completions`, {
       method: "POST",
       headers: { authorization: `Bearer ${config.deepseekApiKey}`, "content-type": "application/json" },
@@ -279,7 +337,7 @@ const researchWithEvidence =
             content:
               "Return JSON with a concise result string. Answer only from the supplied evidence and do not invent sources.",
           },
-          { role: "user", content: JSON.stringify({ goal, evidence }) },
+          { role: "user", content: JSON.stringify({ goal, evidence, requirements }) },
         ],
       }),
     })
@@ -296,12 +354,20 @@ const researchWithEvidence =
 
 const researchWithEvidenceStream =
   (config: ProviderConfig) =>
-  async (goal: string, onChunk: (content: string) => void | Promise<void>): Promise<ResearchResult> => {
-    const evidence = await researchEvidence(config, goal)
+  async (
+    goal: string,
+    requirements: ResearchRequirements,
+    onChunk: (content: string) => void | Promise<void>
+  ): Promise<ResearchResult> => {
+    const evidence = await researchEvidence(config, goal, requirements)
     const completionResponse = await fetch(`${config.deepseekBaseUrl}/chat/completions`, {
       method: "POST",
       headers: { authorization: `Bearer ${config.deepseekApiKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ model: config.deepseekModel, stream: true, messages: researchMessages(goal, evidence) }),
+      body: JSON.stringify({
+        model: config.deepseekModel,
+        stream: true,
+        messages: researchMessages(goal, evidence, requirements),
+      }),
     })
     if (!completionResponse.ok) throw new Error(`DeepSeek synthesis failed with ${completionResponse.status}`)
     if (!completionResponse.body) throw new Error("DeepSeek synthesis did not return a stream")
@@ -348,22 +414,26 @@ const researchWithEvidenceStream =
 
 export const createConfiguredProviderApp = (environment: ProviderEnvironment) => {
   const config = providerConfig(environment)
-  const offer: Offer = {
-    id: "mcpay-web-research-v1",
-    providerName: "MCPay Research Provider",
-    service: "web-research",
-    priceMon: "0.001",
-    reputation: 90,
-    quality: 90,
-    latencyMs: 1000,
-    recipient: config.receivingAddress,
-    paymentAmountNative: "1000000000000000",
+  const quote = (requirements: ResearchRequirements): Offer => {
+    const milliMon = 1 + requirements.sourceCount + Math.ceil(requirements.outputTargetChars / 500)
+    return {
+      id: "mcpay-web-research-v1",
+      providerName: "MCPay Research Provider",
+      service: "web-research",
+      priceMon: (milliMon / 1000).toFixed(3),
+      reputation: 90,
+      quality: 90,
+      latencyMs: 1000,
+      recipient: config.receivingAddress,
+      paymentAmountNative: (BigInt(milliMon) * 1_000_000_000_000_000n).toString(),
+    }
   }
   const store = createD1PaymentStore(environment.DB)
   return createProviderApp(
     {
-      offer,
-      verifyPayment: verifyMonadPayment(config, offer),
+      offer: quote(defaultResearchRequirements),
+      quote,
+      verifyPayment: (proof, offer) => verifyMonadPayment(config, offer)(proof),
       consumePayment: store.consume,
       research: researchWithEvidence(config),
       researchStream: researchWithEvidenceStream(config),

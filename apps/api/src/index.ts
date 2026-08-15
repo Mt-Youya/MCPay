@@ -3,6 +3,7 @@ import { Hono, type Context } from "hono"
 import { canAfford, rankOffers, type Offer } from "@mcpay/commerce"
 
 import { createFixedWindowRateLimiter, requestClientIp, type TaskRateLimiter } from "./rate-limit.js"
+import type { WalletAccess, WalletAddress } from "./wallet-access.js"
 
 const offers: Offer[] = [
   {
@@ -32,10 +33,16 @@ const offers: Offer[] = [
 export type CreateTask = {
   goal?: unknown
   budgetMon?: unknown
+  sourceCount?: unknown
+  outputTargetChars?: unknown
 }
 
+export type ResearchRequirements = { sourceCount: number; outputTargetChars: number }
+
+export const defaultResearchRequirements: ResearchRequirements = { sourceCount: 5, outputTargetChars: 1000 }
+
 export type TaskResult = {
-  task: { id: string; goal: string; budgetMon: string }
+  task: { id: string; goal: string; budgetMon: string; requirements: ResearchRequirements }
   plan: { service: string; label: string; explanation: string; source: "deterministic" | "llm" }
   ranking: ReturnType<typeof rankOffers>
   integration: { planner: "deterministic" | "llm"; settlement: "demo" | "monad"; provider: "demo" | "remote" }
@@ -54,7 +61,7 @@ export type TaskResult = {
         providerVerification: "verified"
         execution: { state: "completed"; result: string; citations: Array<{ title: string; url: string }> }
       }
-    | { state: "budget-exceeded"; message: string }
+    | { state: "budget-exceeded" | "quota-exceeded"; message: string }
 }
 
 export type TaskProgress = {
@@ -66,21 +73,43 @@ export type TaskProgress = {
 export type TaskProgressListener = (progress: TaskProgress) => void | Promise<void>
 
 export type TaskRunner = {
-  run: (task: { goal: string; budgetMon: string }, onProgress?: TaskProgressListener) => Promise<TaskResult>
+  run: (
+    task: ValidTask,
+    onProgress?: TaskProgressListener,
+    authorizePurchase?: (amountMon: string) => Promise<boolean>
+  ) => Promise<TaskResult>
 }
 
 export type ApiSecurity = {
   taskRateLimiter: TaskRateLimiter
   verifyTaskTurnstile?: (token: string | undefined, clientIp: string) => Promise<boolean>
+  walletAccess?: WalletAccess
+  requireWalletAuth?: boolean
 }
 
 export const createDemoTaskRunner = (): TaskRunner => ({
-  async run(task, onProgress) {
+  async run(task, onProgress, authorizePurchase) {
     await onProgress?.({ stage: "planning", message: "Planning Task" })
     const ranking = rankOffers(offers)
     const selectedOffer = ranking.selected.offer
     const canPurchase = canAfford(task.budgetMon, selectedOffer.priceMon)
     await onProgress?.({ stage: "offers", message: `${selectedOffer.providerName} selected` })
+
+    if (canPurchase && authorizePurchase && !(await authorizePurchase(selectedOffer.priceMon))) {
+      return {
+        task: { id: "task-demo-001", ...task },
+        plan: {
+          service: "web-research",
+          label: "Web research",
+          explanation: "This Task needs research from an external Service.",
+          source: "deterministic",
+        },
+        ranking,
+        integration: { planner: "deterministic", settlement: "demo", provider: "demo" },
+        economics: { spentMon: "0.0000", servicesPurchased: 0, humanApprovals: 0 },
+        purchase: { state: "quota-exceeded", message: "This wallet has reached its daily MON spending limit." },
+      }
+    }
 
     if (canPurchase) {
       await onProgress?.({ stage: "payment", message: "Monad payment confirmed" })
@@ -126,9 +155,35 @@ export const createDemoTaskRunner = (): TaskRunner => ({
   },
 })
 
-type ValidTask = { goal: string; budgetMon: string }
+type ValidTask = { goal: string; budgetMon: string; requirements: ResearchRequirements }
+type ValidatedTask = { task: ValidTask; walletAddress?: WalletAddress }
 
-const validateTask = async (context: Context, security: ApiSecurity): Promise<ValidTask | Response> => {
+const researchRequirements = (body: CreateTask): ResearchRequirements | null => {
+  const sourceCount = body.sourceCount ?? defaultResearchRequirements.sourceCount
+  const outputTargetChars = body.outputTargetChars ?? defaultResearchRequirements.outputTargetChars
+  if (
+    typeof sourceCount !== "number" ||
+    !Number.isInteger(sourceCount) ||
+    sourceCount < 1 ||
+    sourceCount > 10 ||
+    typeof outputTargetChars !== "number" ||
+    !Number.isInteger(outputTargetChars) ||
+    outputTargetChars < 250 ||
+    outputTargetChars > 4000
+  ) {
+    return null
+  }
+  return { sourceCount, outputTargetChars }
+}
+
+const cookieValue = (request: Request, name: string) =>
+  request.headers
+    .get("cookie")
+    ?.split(";")
+    .map((value) => value.trim().split("=", 2))
+    .find(([key]) => key === name)?.[1]
+
+const validateTask = async (context: Context, security: ApiSecurity): Promise<ValidatedTask | Response> => {
   const rateLimit = await security.taskRateLimiter(requestClientIp(context.req.raw))
   if (!rateLimit.allowed) {
     context.header("Retry-After", String(rateLimit.retryAfterSeconds))
@@ -148,10 +203,28 @@ const validateTask = async (context: Context, security: ApiSecurity): Promise<Va
   if (typeof body.budgetMon !== "string" || Number(body.budgetMon) <= 0) {
     return context.json({ message: "A positive Budget is required." }, 400)
   }
-  return { goal: body.goal.trim(), budgetMon: body.budgetMon }
+  const requirements = researchRequirements(body)
+  if (!requirements) {
+    return context.json({ message: "Source count must be 1–10 and output length must be 250–4000 characters." }, 400)
+  }
+  const session = await security.walletAccess?.session(cookieValue(context.req.raw, "mcpay_session"))
+  if (security.requireWalletAuth && !session)
+    return context.json({ message: "Connect and sign in with a wallet first." }, 401)
+  if (session && security.requireWalletAuth && !(await security.walletAccess?.claimTask(session.walletAddress))) {
+    return context.json({ message: "This wallet has reached its daily task limit." }, 429)
+  }
+  return {
+    task: { goal: body.goal.trim(), budgetMon: body.budgetMon, requirements },
+    walletAddress: session?.walletAddress,
+  }
 }
 
-const streamTask = (context: Context, runner: TaskRunner, task: ValidTask) => {
+const streamTask = (
+  context: Context,
+  runner: TaskRunner,
+  task: ValidTask,
+  authorizePurchase?: (amountMon: string) => Promise<boolean>
+) => {
   const encoder = new TextEncoder()
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -161,7 +234,7 @@ const streamTask = (context: Context, runner: TaskRunner, task: ValidTask) => {
 
       void (async () => {
         try {
-          const result = await runner.run(task, async (progress) => send("progress", progress))
+          const result = await runner.run(task, async (progress) => send("progress", progress), authorizePurchase)
           send("result", result)
         } catch (caught) {
           send("error", { message: caught instanceof Error ? caught.message : "The Task could not be completed." })
@@ -184,12 +257,70 @@ export const createApp = (
 ) => {
   const app = new Hono()
 
+  app.post("/api/auth/nonce", async (context) => {
+    const rateLimit = await security.taskRateLimiter(requestClientIp(context.req.raw))
+    if (!rateLimit.allowed) {
+      context.header("Retry-After", String(rateLimit.retryAfterSeconds))
+      return context.json({ message: "Too many authentication requests. Try again later." }, 429)
+    }
+    if (!security.walletAccess) return context.json({ message: "Wallet authentication is not configured." }, 404)
+    const body = (await context.req.json()) as { address?: unknown }
+    const challenge = await security.walletAccess.createChallenge({
+      address: body.address,
+      hostname: new URL(context.req.url).hostname,
+    })
+    if (!challenge) return context.json({ message: "A valid wallet address is required." }, 400)
+    return context.json(challenge)
+  })
+
+  app.post("/api/auth/session", async (context) => {
+    if (!security.walletAccess) return context.json({ message: "Wallet authentication is not configured." }, 404)
+    const body = (await context.req.json()) as { address?: unknown; nonce?: unknown; signature?: unknown }
+    const created = await security.walletAccess.createSession({
+      address: body.address,
+      nonce: body.nonce,
+      signature: body.signature,
+      hostname: new URL(context.req.url).hostname,
+    })
+    if (!created) return context.json({ message: "Wallet signature could not be verified." }, 401)
+    context.header(
+      "set-cookie",
+      `mcpay_session=${created.token}; HttpOnly; Path=/; SameSite=Strict; Secure; Max-Age=${Math.floor(
+        (Date.parse(created.expiresAt) - Date.now()) / 1_000
+      )}`
+    )
+    return context.json({
+      walletAddress: created.session.walletAddress,
+      quota: await security.walletAccess.quotaFor(created.session.walletAddress),
+    })
+  })
+
+  app.get("/api/auth/session", async (context) => {
+    if (!security.walletAccess) return context.json({ message: "Wallet authentication is not configured." }, 404)
+    const session = await security.walletAccess.session(cookieValue(context.req.raw, "mcpay_session"))
+    if (!session) return context.json({ message: "No active wallet session." }, 401)
+    return context.json({
+      walletAddress: session.walletAddress,
+      quota: await security.walletAccess.quotaFor(session.walletAddress),
+    })
+  })
+
+  app.post("/api/auth/logout", async (context) => {
+    await security.walletAccess?.deleteSession(cookieValue(context.req.raw, "mcpay_session"))
+    context.header("set-cookie", "mcpay_session=; HttpOnly; Path=/; SameSite=Strict; Secure; Max-Age=0")
+    return context.body(null, 204)
+  })
+
   app.post("/api/tasks", async (context) => {
-    const task = await validateTask(context, security)
-    if (task instanceof Response) return task
+    const validated = await validateTask(context, security)
+    if (validated instanceof Response) return validated
+    const authorizePurchase =
+      validated.walletAddress && security.walletAccess
+        ? (amountMon: string) => security.walletAccess!.reserveSpend(validated.walletAddress!, amountMon)
+        : undefined
 
     try {
-      return context.json(await runner.run(task))
+      return context.json(await runner.run(validated.task, undefined, authorizePurchase))
     } catch (caught) {
       return context.json(
         { message: caught instanceof Error ? caught.message : "The Task could not be completed." },
@@ -199,9 +330,13 @@ export const createApp = (
   })
 
   app.post("/api/tasks/stream", async (context) => {
-    const task = await validateTask(context, security)
-    if (task instanceof Response) return task
-    return streamTask(context, runner, task)
+    const validated = await validateTask(context, security)
+    if (validated instanceof Response) return validated
+    const authorizePurchase =
+      validated.walletAddress && security.walletAccess
+        ? (amountMon: string) => security.walletAccess!.reserveSpend(validated.walletAddress!, amountMon)
+        : undefined
+    return streamTask(context, runner, validated.task, authorizePurchase)
   })
 
   return app

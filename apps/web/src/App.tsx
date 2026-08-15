@@ -10,6 +10,9 @@ type TurnstileOptions = {
 
 declare global {
   interface Window {
+    ethereum?: {
+      request: (arguments_: { method: string; params?: unknown[] }) => Promise<unknown>
+    }
     turnstile?: {
       render: (container: HTMLElement, options: TurnstileOptions) => string
       reset: (widgetId: string) => void
@@ -21,6 +24,11 @@ declare global {
 const turnstileSiteKey = "0x4AAAAAAEQi5uy8WjbcalUB"
 
 type TaskView = {
+  task: {
+    goal: string
+    budgetMon: string
+    requirements: { sourceCount: number; outputTargetChars: number }
+  }
   plan: {
     label: string
     explanation: string
@@ -67,7 +75,7 @@ type TaskView = {
         }
       }
     | {
-        state: "budget-exceeded"
+        state: "budget-exceeded" | "quota-exceeded"
         message: string
       }
   integration: {
@@ -80,6 +88,11 @@ type TaskView = {
     servicesPurchased: number
     humanApprovals: number
   }
+}
+
+type WalletSession = {
+  walletAddress: string
+  quota: { dailyTasksRemaining: number; dailySpendRemainingMon: string }
 }
 
 type TaskStreamData = { stage?: AgentStage; message?: string; content?: string } | TaskView | { message: string }
@@ -154,6 +167,10 @@ export const App = () => {
     "Research the Monad ecosystem and identify five promising projects. Use Chinese reply"
   )
   const [budgetMon, setBudgetMon] = useState("0.01")
+  const [sourceCount, setSourceCount] = useState("5")
+  const [outputTargetChars, setOutputTargetChars] = useState("1000")
+  const [walletSession, setWalletSession] = useState<WalletSession | null>(null)
+  const [isConnectingWallet, setIsConnectingWallet] = useState(false)
   const [task, setTask] = useState<TaskView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
@@ -167,6 +184,66 @@ export const App = () => {
   const transcriptElement = useRef<HTMLDivElement>(null)
   const pendingOutput = useRef("")
   const outputFrame = useRef<number | null>(null)
+
+  const loadWalletSession = async () => {
+    try {
+      const response = await fetch("/api/auth/session", { credentials: "same-origin" })
+      if (!response.ok) {
+        setWalletSession(null)
+        return
+      }
+      setWalletSession((await response.json()) as WalletSession)
+    } catch {
+      setWalletSession(null)
+    }
+  }
+
+  const connectWallet = async () => {
+    if (!window.ethereum) {
+      setError("MetaMask is required to sign in and use the Agent Wallet.")
+      return
+    }
+    setIsConnectingWallet(true)
+    setError(null)
+    try {
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" })
+      const address = Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : null
+      if (!address) throw new Error("MetaMask did not return a wallet address.")
+      const challengeResponse = await fetch("/api/auth/nonce", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ address }),
+      })
+      if (!challengeResponse.ok) throw new Error("The wallet login challenge could not be created.")
+      const challenge = (await challengeResponse.json()) as { nonce: string; message: string }
+      const signature = await window.ethereum.request({
+        method: "personal_sign",
+        params: [challenge.message, address],
+      })
+      const sessionResponse = await fetch("/api/auth/session", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ address, nonce: challenge.nonce, signature }),
+      })
+      if (!sessionResponse.ok) throw new Error("The wallet signature could not be verified.")
+      setWalletSession((await sessionResponse.json()) as WalletSession)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Wallet sign-in failed.")
+    } finally {
+      setIsConnectingWallet(false)
+    }
+  }
+
+  const disconnectWallet = async () => {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" })
+    setWalletSession(null)
+  }
+
+  useEffect(() => {
+    void loadWalletSession()
+  }, [])
 
   useEffect(() => {
     const render = () => {
@@ -243,7 +320,12 @@ export const App = () => {
           "content-type": "application/json",
           "x-turnstile-token": turnstileToken ?? "",
         },
-        body: JSON.stringify({ goal, budgetMon }),
+        body: JSON.stringify({
+          goal,
+          budgetMon,
+          sourceCount: Number(sourceCount),
+          outputTargetChars: Number(outputTargetChars),
+        }),
       })
 
       if (!response.ok) {
@@ -266,6 +348,7 @@ export const App = () => {
       if (turnstileWidgetId.current) window.turnstile?.reset(turnstileWidgetId.current)
       setTurnstileToken(null)
       setIsRunning(false)
+      await loadWalletSession()
     }
   }
 
@@ -311,6 +394,38 @@ export const App = () => {
               Payment runs only after the selected service fits your budget.
             </p>
           </div>
+          <div className="rounded-[.65rem] border border-[#343a4b] bg-[#0d1018] px-[.9rem] py-3">
+            {walletSession ? (
+              <div className="grid gap-2">
+                <p className="font-mono text-[.72rem] text-[#dfe2ed]">{walletSession.walletAddress}</p>
+                <p className="text-[.75rem] text-[#aeb4c3]">
+                  Today: {walletSession.quota.dailyTasksRemaining} tasks · {walletSession.quota.dailySpendRemainingMon}{" "}
+                  MON remaining
+                </p>
+                <button
+                  className="w-fit cursor-pointer border-0 bg-transparent p-0 text-left text-[.75rem] font-bold text-[#aab5ff]"
+                  type="button"
+                  onClick={() => void disconnectWallet()}
+                >
+                  Disconnect wallet
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[.75rem] leading-[1.45] text-[#aeb4c3]">
+                  Sign in with MetaMask to use your daily Agent quota.
+                </p>
+                <button
+                  className="shrink-0 cursor-pointer rounded-md border border-[#6976cb] bg-transparent px-3 py-2 text-[.72rem] font-extrabold text-[#cbd2ff] disabled:cursor-not-allowed disabled:opacity-50"
+                  type="button"
+                  onClick={() => void connectWallet()}
+                  disabled={isConnectingWallet}
+                >
+                  {isConnectingWallet ? "Connecting" : "Connect MetaMask"}
+                </button>
+              </div>
+            )}
+          </div>
           <label className="grid gap-2 text-[.82rem] font-bold text-[#dfe2ed]">
             <span>Task goal</span>
             <textarea
@@ -332,6 +447,36 @@ export const App = () => {
               <strong className="px-[.9rem] font-mono text-[.75rem] tracking-[.08em] text-[#aeb4c3]">MON</strong>
             </span>
           </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="grid gap-2 text-[.82rem] font-bold text-[#dfe2ed]">
+              <span>Sources</span>
+              <input
+                className="min-h-12 rounded-[.65rem] border border-[#343a4b] bg-[#0d1018] px-[.9rem] text-[#f2f3f8] transition-colors hover:border-[#515a73] focus:border-[#8c99ff] focus:bg-[#101421] focus:outline-none"
+                aria-label="Research sources"
+                value={sourceCount}
+                onChange={(event) => setSourceCount(event.target.value)}
+                type="number"
+                min="1"
+                max="10"
+                step="1"
+                inputMode="numeric"
+              />
+            </label>
+            <label className="grid gap-2 text-[.82rem] font-bold text-[#dfe2ed]">
+              <span>Target characters</span>
+              <input
+                className="min-h-12 rounded-[.65rem] border border-[#343a4b] bg-[#0d1018] px-[.9rem] text-[#f2f3f8] transition-colors hover:border-[#515a73] focus:border-[#8c99ff] focus:bg-[#101421] focus:outline-none"
+                aria-label="Target output characters"
+                value={outputTargetChars}
+                onChange={(event) => setOutputTargetChars(event.target.value)}
+                type="number"
+                min="250"
+                max="4000"
+                step="250"
+                inputMode="numeric"
+              />
+            </label>
+          </div>
           <div className="min-h-[4.1rem]" ref={turnstileElement} />
           <button
             className="min-h-[3.2rem] cursor-pointer rounded-[.65rem] border border-[#b5c0ff] bg-[#bdc5ff] font-extrabold text-[#111321] shadow-[0_.8rem_1.8rem_rgba(125,139,255,.2)] transition-[transform,box-shadow,opacity] hover:not-disabled:-translate-y-px hover:not-disabled:shadow-[0_1rem_2.2rem_rgba(125,139,255,.32)] disabled:cursor-not-allowed disabled:opacity-40"
@@ -467,6 +612,10 @@ export const App = () => {
             <h2 className="mt-2 text-[1.2rem] tracking-[-.025em]">{task.plan.label}</h2>
           </div>
           <p className="text-[.86rem] leading-[1.6] text-[#aeb4c3]">{task.plan.explanation}</p>
+          <p className="text-[.86rem] leading-[1.6] text-[#aeb4c3]">
+            Task scope: {task.task.requirements.sourceCount} sources · {task.task.requirements.outputTargetChars}{" "}
+            characters
+          </p>
           <div className="col-start-1 border-t border-[#282d3c] pt-5 max-[48rem]:col-auto">
             <p className="font-mono text-[.68rem] leading-[1.45] font-bold tracking-[.13em] text-[#aab5ff] uppercase">
               Selected provider

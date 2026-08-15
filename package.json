@@ -2,9 +2,11 @@
   "name": "MCPay",
   "version": "0.0.1",
   "private": true,
-  "description": "",
-  "keywords": [],
-  "license": "ISC",
+  "description": "MCPay (Model Context Payment) is a budget-aware commerce orchestration layer for AI agents on Monad.",
+  "keywords": [
+    "monad"
+  ],
+  "license": "MIT",
   "author": "",
   "type": "module",
   "scripts": {

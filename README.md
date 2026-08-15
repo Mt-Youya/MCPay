@@ -1,6 +1,6 @@
 # MCPay — Agent Commerce on Monad
 
-MCPay 让用户只提供 **任务目标** 与 **MON 预算**，由 Agent 在预算内发现服务、比较 Offer、处理 `402 Payment Required`、在 Monad Testnet 结算，并取得付费执行结果。
+MCPay 让用户通过 MetaMask 签名登录后提供 **任务目标** 与 **MON 预算**，由 Agent 在预算内发现服务、比较 Offer、处理 `402 Payment Required`、在 Monad Testnet 结算，并取得付费执行结果。
 
 它不是钱包、MCP 目录或单纯的 x402 封装；它负责 Agent 的商业决策：**买什么、向谁买、是否值得花这笔钱，以及付款后如何完成执行**。
 
@@ -9,7 +9,7 @@ MCPay 让用户只提供 **任务目标** 与 **MON 预算**，由 Agent 在预�
 当前仓库已实现一条 `web-research` 的端到端路径：
 
 ```text
-目标 + MON 预算
+MetaMask 签名登录 + 目标 + MON 预算
   → Agent 规划与发现 Offer
   → 确定性排序并选择 Provider
   → Provider 返回 HTTP 402
@@ -19,23 +19,24 @@ MCPay 让用户只提供 **任务目标** 与 **MON 预算**，由 Agent 在预�
   → DeepSeek 基于证据流式生成研究结果与引用
 ```
 
-| 能力 | 当前实现 |
-| --- | --- |
-| 任务入口 | React Web + Cloudflare Turnstile |
-| 执行反馈 | `POST /api/tasks/stream` 的 SSE 阶段事件与正文片段 |
-| Offer 选择 | 价格、声誉、质量、延迟的确定性评分 |
-| 支付 | Monad Testnet 原生 MON 转账，`viem` 等待成功回执 |
-| Provider | Cloudflare Worker：`/offers`、`/execute`、`/health` |
-| 防重放 | D1 对交易哈希原子 `INSERT OR IGNORE`，一笔支付只能执行一次 |
-| 研究服务 | Tavily 检索最多 5 条证据；DeepSeek 仅据证据综合并返回引用 |
-| 防护 | Web 任务 10 次/IP/分钟；Provider 执行 30 次/IP/分钟 |
+| 能力       | 当前实现                                                                       |
+| ---------- | ------------------------------------------------------------------------------ |
+| 任务入口   | React Web + MetaMask 签名登录 + Cloudflare Turnstile                           |
+| 执行反馈   | `POST /api/tasks/stream` 的 SSE 阶段事件与正文片段                             |
+| Offer 选择 | 价格、声誉、质量、延迟的确定性评分                                             |
+| 动态报价   | `0.001` 基础费 + 每条来源 `0.001` + 每 500 个目标字符 `0.001` MON              |
+| 支付       | Monad Testnet 原生 MON 转账，`viem` 等待成功回执                               |
+| Provider   | Cloudflare Worker：`/offers`、`/execute`、`/health`                            |
+| 防重放     | D1 对交易哈希原子 `INSERT OR IGNORE`，一笔支付只能执行一次                     |
+| 研究服务   | Tavily 按任务检索 1–10 条证据；DeepSeek 仅据证据流式综合并返回引用             |
+| 防护       | Turnstile；任务 10/IP/分钟；Provider 30/IP/分钟；每地址每日 10 任务、0.100 MON |
 
 ## Monorepo 结构
 
 ```text
 apps/
   web/        浏览器任务界面与流式执行呈现
-  api/        任务编排、预算校验、Monad 支付、静态资源 Worker
+  api/        任务编排、钱包会话与额度、Monad 支付、静态资源 Worker
   provider/   付费研究 Provider、交易验证、D1 防重放、Tavily/DeepSeek
 packages/
   commerce/   Offer、预算与排名的共享领域逻辑
@@ -75,7 +76,8 @@ pnpm --filter @mcpay/provider cf:check
 4. 通过 `wrangler secret put` 为 Provider 设置 `MCPAY_PROVIDER_RECEIVING_ADDRESS`、`MCPAY_PROVIDER_DEEPSEEK_API_KEY`、`MCPAY_PROVIDER_TAVILY_API_KEY`。
 5. 部署 Provider：`pnpm --filter @mcpay/provider cf:deploy`。
 6. 将 [`apps/api/.env.example`](apps/api/.env.example) 复制为 `.env`；设置 `MCPAY_RUNTIME_MODE=live`、Agent Wallet 私钥、DeepSeek Key、Provider 的 `/offers` 和 `/execute` URL。
-7. 为主 Worker 设置 `MCPAY_LLM_API_KEY`、`MCPAY_AGENT_PRIVATE_KEY`、`MCPAY_TURNSTILE_SECRET`，然后执行 `pnpm --filter @mcpay/api cf:deploy`。
+7. 主 Worker 的 D1 数据库 `mcpay-api` 已在 [`apps/api/wrangler.jsonc`](apps/api/wrangler.jsonc) 绑定；新环境先执行 `pnpm --filter @mcpay/api exec wrangler d1 migrations apply mcpay-api --remote`。
+8. 为主 Worker 设置 `MCPAY_LLM_API_KEY`、`MCPAY_AGENT_PRIVATE_KEY`、`MCPAY_TURNSTILE_SECRET`，然后执行 `pnpm --filter @mcpay/api cf:deploy`。
 
 不要把私钥、API Key、Turnstile Token 或 `.dev.vars` 提交到 Git。示例文件只应保留变量名和占位符。
 

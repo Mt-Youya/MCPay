@@ -3,7 +3,13 @@ import { privateKeyToAccount } from "viem/accounts"
 
 import { canAfford, rankOffers, type Offer } from "@mcpay/commerce"
 
-import { createDemoTaskRunner, type TaskProgressListener, type TaskResult, type TaskRunner } from "./index.js"
+import {
+  createDemoTaskRunner,
+  type ResearchRequirements,
+  type TaskProgressListener,
+  type TaskResult,
+  type TaskRunner,
+} from "./index.js"
 
 type LiveConfig = {
   llmApiKey: string
@@ -67,8 +73,11 @@ const liveConfig = (environment: RuntimeEnvironment): LiveConfig => ({
   offersUrl: required(environment, "offersUrl"),
 })
 
-const fetchOffers = async (url: string) => {
-  const response = await fetch(url)
+const fetchOffers = async (url: string, requirements: ResearchRequirements) => {
+  const offersUrl = new URL(url)
+  offersUrl.searchParams.set("sourceCount", String(requirements.sourceCount))
+  offersUrl.searchParams.set("outputTargetChars", String(requirements.outputTargetChars))
+  const response = await fetch(offersUrl.toString())
   if (!response.ok) throw new Error(`Offer discovery failed with ${response.status}`)
   const payload = (await response.json()) as { offers?: Offer[] }
   if (!Array.isArray(payload.offers) || payload.offers.length === 0)
@@ -105,13 +114,13 @@ const planTask = async (config: LiveConfig, goal: string) => {
 
 const requestPayment = async (
   config: LiveConfig,
-  task: { goal: string; budgetMon: string },
+  task: { goal: string; budgetMon: string; requirements: ResearchRequirements },
   offer: Offer
 ): Promise<PaymentRequest> => {
   const response = await fetch(config.providerExecutionUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ goal: task.goal, budgetMon: task.budgetMon, service: offer.service }),
+    body: JSON.stringify({ goal: task.goal, budgetMon: task.budgetMon, service: offer.service, ...task.requirements }),
   })
   if (response.status !== 402)
     throw new Error(`Provider did not return a Payment Request (received ${response.status})`)
@@ -150,7 +159,7 @@ const settleOnMonad = async (config: LiveConfig, paymentRequest: PaymentRequest)
 
 const executeRemotely = async (
   config: LiveConfig,
-  task: { goal: string; budgetMon: string },
+  task: { goal: string; budgetMon: string; requirements: ResearchRequirements },
   offer: Offer,
   paymentRequest: PaymentRequest,
   transactionId: string
@@ -163,7 +172,7 @@ const executeRemotely = async (
       "x-payment-recipient": paymentRequest.recipient,
       "x-payment-amount": paymentRequest.paymentAmountNative,
     },
-    body: JSON.stringify({ goal: task.goal, budgetMon: task.budgetMon, service: offer.service }),
+    body: JSON.stringify({ goal: task.goal, budgetMon: task.budgetMon, service: offer.service, ...task.requirements }),
   })
   if (!response.ok) throw new Error(`Provider Execution failed with ${response.status}`)
   const execution = (await response.json()) as RemoteExecution
@@ -185,7 +194,7 @@ const validExecution = (execution: RemoteExecution) => {
 
 const executeRemotelyStream = async (
   config: LiveConfig,
-  task: { goal: string; budgetMon: string },
+  task: { goal: string; budgetMon: string; requirements: ResearchRequirements },
   offer: Offer,
   paymentRequest: PaymentRequest,
   transactionId: string,
@@ -200,7 +209,7 @@ const executeRemotelyStream = async (
       "x-payment-recipient": paymentRequest.recipient,
       "x-payment-amount": paymentRequest.paymentAmountNative,
     },
-    body: JSON.stringify({ goal: task.goal, budgetMon: task.budgetMon, service: offer.service }),
+    body: JSON.stringify({ goal: task.goal, budgetMon: task.budgetMon, service: offer.service, ...task.requirements }),
   })
   if (!response.ok) throw new Error(`Provider Execution failed with ${response.status}`)
   if (!response.body) throw new Error("Provider Execution did not return a stream")
@@ -257,9 +266,12 @@ const executeRemotelyStream = async (
 }
 
 const createLiveTaskRunner = (config: LiveConfig): TaskRunner => ({
-  async run(task, onProgress): Promise<TaskResult> {
+  async run(task, onProgress, authorizePurchase): Promise<TaskResult> {
     await onProgress?.({ stage: "planning", message: "Planning Task and discovering Offers" })
-    const [plan, offers] = await Promise.all([planTask(config, task.goal), fetchOffers(config.offersUrl)])
+    const [plan, offers] = await Promise.all([
+      planTask(config, task.goal),
+      fetchOffers(config.offersUrl, task.requirements),
+    ])
     const matchingOffers = offers.filter((offer) => offer.service === plan.service)
     if (matchingOffers.length === 0) throw new Error("No purchasable Offer supports this Service.")
     const ranking = rankOffers(matchingOffers)
@@ -279,6 +291,17 @@ const createLiveTaskRunner = (config: LiveConfig): TaskRunner => ({
           state: "budget-exceeded",
           message: "The selected Offer exceeds this Task Budget. No Payment or Execution was created.",
         },
+      }
+    }
+
+    if (authorizePurchase && !(await authorizePurchase(paymentRequest.amountMon))) {
+      return {
+        task: { id: crypto.randomUUID(), ...task },
+        plan,
+        ranking,
+        integration: { planner: "llm", settlement: "monad", provider: "remote" },
+        economics: { spentMon: "0.0000", servicesPurchased: 0, humanApprovals: 0 },
+        purchase: { state: "quota-exceeded", message: "This wallet has reached its daily MON spending limit." },
       }
     }
 

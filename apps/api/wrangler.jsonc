@@ -17,6 +17,14 @@
       "simple": { "limit": 10, "period": 60 },
     },
   ],
+  "d1_databases": [
+    {
+      "binding": "MCPAY_API_DB",
+      "database_name": "mcpay-api",
+      "database_id": "e21a5b4e-f7e5-4699-bc5e-b496499c430f",
+      "migrations_dir": "migrations",
+    },
+  ],
   "vars": {
     "MCPAY_RUNTIME_MODE": "live",
     "MCPAY_LLM_BASE_URL": "https://api.deepseek.com",

@@ -115,7 +115,7 @@ describe("MCPay Research Provider", () => {
       verifyPayment: vi.fn(async () => undefined),
       consumePayment: vi.fn(async () => true),
       research: vi.fn(async () => ({ result: "unused", citations: [] })),
-      researchStream: async (_goal, onChunk) => {
+      researchStream: async (_goal, _requirements, onChunk) => {
         await onChunk("Monad ")
         await onChunk("research")
         return { result: "Monad research", citations: [{ title: "Monad docs", url: "https://docs.monad.xyz/" }] }
